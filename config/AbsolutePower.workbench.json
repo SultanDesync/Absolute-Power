@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "absolute.power",
+  "displayName": "Absolute Power",
+  "backendDll": "AbsolutePower.dll",
+  "queryExport": "AbsolutePower_QueryApi",
+  "backendApiVersion": 1,
+  "requiredHost": {
+    "moduleId": "absolute.workbench",
+    "minimumApiVersion": 1,
+    "required": true
+  },
+  "pages": [
+    {
+      "id": "power-presets",
+      "title": "Power Presets",
+      "category": "Ship Systems",
+      "order": 100
+    },
+    {
+      "id": "power-automation",
+      "title": "Automation / Cheats",
+      "category": "Ship Systems",
+      "order": 110,
+      "warningLevel": "game-balance"
+    },
+    {
+      "id": "power-diagnostics",
+      "title": "Power Diagnostics",
+      "category": "Diagnostics",
+      "order": 900
+    }
+  ]
+}

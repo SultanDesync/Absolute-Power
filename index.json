@@ -1,0 +1,26 @@
+{
+  "project": "AbsolutePower",
+  "version": "0.1.0-alpha",
+  "type": "Standalone SFSE plugin with an Absolute Workbench frontend",
+  "summary": "Tiered ship-power presets and opt-in event-driven power automation for Starfield.",
+  "requiredRuntimeDependencies": [
+    "Starfield Script Extender (SFSE)",
+    "Absolute Workbench"
+  ],
+  "optionalIntegrations": [
+    "AbsoluteHOTAS"
+  ],
+  "technologies": [
+    "C++23",
+    "Starfield Script Extender (SFSE)",
+    "Exact-build native power seams",
+    "C-compatible Absolute suite API"
+  ],
+  "directories": {
+    "include": "Public and internal headers, including the suite integration ABI.",
+    "src": "Plugin entry point, allocator, automation policy, service, and native seam.",
+    "config": "Shipped defaults and the Absolute Workbench discovery manifest.",
+    "docs": "Architecture, research provenance, and Workbench frontend handoff.",
+    "tests": "Standalone pure-policy and ABI tests."
+  }
+}

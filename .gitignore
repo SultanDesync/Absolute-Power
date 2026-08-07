@@ -1,0 +1,15 @@
+build/
+.xmake/
+contrib/Plugin*/
+releases/
+*.dll
+*.lib
+*.exp
+*.pdb
+*.log
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.slnx
+.vs/
+.idea/
