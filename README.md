@@ -3,8 +3,20 @@
 Absolute Power is a Starfield SFSE plugin for priority-based ship-power presets and
 optional event-driven reallocation. It is part of the Absolute flight-control suite.
 
+## Absolute suite
+
+- [Absolute Workbench](https://github.com/SultanDesync/Absolute-Workbench) — required
+  shared configuration UI for Absolute Power and optional frontend for other daughters.
+- [AbsoluteHOTAS](https://github.com/SultanDesync/AbsoluteHOTAS) — optional HOTAS/HOSAS
+  command client and the suite's primary mod page.
+- [Absolute Head Tracking](https://github.com/SultanDesync/Absolute-Head-Tracking) —
+  standalone OpenTrack cockpit camera control.
+- [AbsoluteZero Ship Control](https://github.com/SultanDesync/AbsoluteZero-Ship-Control) —
+  lightweight mouse-alignment assistance.
+
 The base mod is standalone with respect to flight hardware: it does not require
-AbsoluteHOTAS. It does require the universal **Absolute Workbench** mod for its user
+AbsoluteHOTAS. It does require the universal [Absolute Workbench](https://github.com/SultanDesync/Absolute-Workbench)
+mod for its user
 interface. AbsoluteHOTAS is an optional command client that can bind preset activation
 and automation commands through the exported suite API.
 
