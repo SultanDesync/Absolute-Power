@@ -7,6 +7,7 @@
 namespace RuntimePaths {
 std::filesystem::path PluginDirectory();
 std::filesystem::path DefaultsPath();
+std::filesystem::path ImportsDirectory();
 std::filesystem::path CustomPath();
 std::filesystem::path WorkbenchPath();
 std::filesystem::path LogPath();

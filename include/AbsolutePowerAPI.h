@@ -25,6 +25,8 @@ enum class Result : std::uint32_t {
     InvalidArgument,
     NotFound,
     Rejected,
+    Conflict,
+    WriteFailure,
 };
 
 enum class RuntimeState : std::uint32_t {
@@ -98,6 +100,20 @@ struct CommandV1 {
     char category[kIdCapacity]{};
 };
 
+inline constexpr std::uint8_t kKeyboardModifierControl = 1U << 0U;
+inline constexpr std::uint8_t kKeyboardModifierAlt = 1U << 1U;
+inline constexpr std::uint8_t kKeyboardModifierShift = 1U << 2U;
+inline constexpr std::uint8_t kKeyboardModifierMask =
+    kKeyboardModifierControl | kKeyboardModifierAlt | kKeyboardModifierShift;
+
+struct KeyboardBindingV1 {
+    std::uint32_t structSize{sizeof(KeyboardBindingV1)};
+    char presetId[kIdCapacity]{};
+    std::uint8_t virtualKey{};
+    std::uint8_t modifiers{};
+    std::uint8_t reserved[2]{};
+};
+
 enum class PreviewTier : std::uint8_t { Green, Yellow, Red, Complete = 0xFF };
 
 struct PreviewV1 {
@@ -129,11 +145,26 @@ struct ApiV1 {
     Result(__cdecl* setAutomationEnabled)(std::uint8_t) noexcept{};
     Result(__cdecl* reloadConfiguration)() noexcept{};
     Result(__cdecl* previewPreset)(const PresetV1*, PreviewV1*) noexcept{};
+
+    // Additive ABI-v1 tail. AbsoluteHOTAS calls this only from its validated
+    // selected-flight-handler output hook. UI and polling threads must use
+    // invokeCommand, which merely queues a named plan.
+    Result(__cdecl* processGameThread)() noexcept{};
+    Result(__cdecl* getKeyboardBinding)(const char*, KeyboardBindingV1*) noexcept{};
+    Result(__cdecl* setKeyboardBinding)(const KeyboardBindingV1*) noexcept{};
+    Result(__cdecl* clearKeyboardBinding)(const char*) noexcept{};
+
+    // Optional direct-native fire telemetry for clients such as AbsoluteHOTAS
+    // that intentionally bypass Starfield's WeaponGroup ButtonEvent listener.
+    // The zero-based group is validated and recorded by Power; this never asks
+    // the client to evaluate rules or mutate ship power.
+    Result(__cdecl* recordWeaponFire)(std::uint32_t groupIndex) noexcept{};
 };
 
 static_assert(std::is_standard_layout_v<ApiV1>);
 static_assert(std::is_trivially_copyable_v<SnapshotV1>);
 static_assert(std::is_trivially_copyable_v<PresetV1>);
+static_assert(std::is_trivially_copyable_v<KeyboardBindingV1>);
 
 } // namespace AbsolutePowerApi
 

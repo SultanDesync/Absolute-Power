@@ -1,8 +1,11 @@
 #include "AbsolutePowerAPI.h"
 
+#include "ControlPanelSubscriber.h"
+#include "GameTaskScheduler.h"
 #include "Plugin.h"
 #include "PowerAllocator.h"
 #include "PowerRuntime.h"
+#include "RuntimePaths.h"
 
 #include <algorithm>
 #include <cstring>
@@ -45,6 +48,7 @@ Result MapBackend(BackendResult result) noexcept {
 Result __cdecl GetStatus(AbsolutePowerApi::StatusV1* output) noexcept {
     if (!output || output->structSize < sizeof(*output)) return Result::InvalidArgument;
     try {
+        GameTaskScheduler::Request();
         const auto state = PowerRuntime::Get().State();
         output->state = static_cast<AbsolutePowerApi::RuntimeState>(state);
         output->automationEnabled = PowerRuntime::Get().AutomationEnabled() ? 1 : 0;
@@ -58,6 +62,7 @@ Result __cdecl GetStatus(AbsolutePowerApi::StatusV1* output) noexcept {
 Result __cdecl GetSnapshot(AbsolutePowerApi::SnapshotV1* output) noexcept {
     if (!output || output->structSize < sizeof(*output)) return Result::InvalidArgument;
     try {
+        GameTaskScheduler::Request();
         AbsolutePower::Snapshot snapshot{};
         const auto result = PowerRuntime::Get().Capture(snapshot);
         if (result != BackendResult::Ok) return MapBackend(result);
@@ -160,7 +165,9 @@ Result __cdecl GetCommand(std::uint32_t index, AbsolutePowerApi::CommandV1* outp
 Result __cdecl InvokeCommand(const char* commandId) noexcept {
     if (!commandId || !*commandId) return Result::InvalidArgument;
     try {
-        return MapBackend(PowerRuntime::Get().InvokeCommand(commandId));
+        const auto result = PowerRuntime::Get().InvokeCommand(commandId);
+        if (result == BackendResult::Ok) GameTaskScheduler::Request();
+        return MapBackend(result);
     } catch (...) {
         return Result::Rejected;
     }
@@ -252,6 +259,104 @@ Result __cdecl PreviewPreset(const AbsolutePowerApi::PresetV1* input,
     }
 }
 
+Result MapShortcutUpdate(AbsolutePower::ShortcutUpdateResult result) noexcept {
+    switch (result) {
+    case AbsolutePower::ShortcutUpdateResult::Ok: return Result::Ok;
+    case AbsolutePower::ShortcutUpdateResult::InvalidArgument:
+        return Result::InvalidArgument;
+    case AbsolutePower::ShortcutUpdateResult::PresetNotFound: return Result::NotFound;
+    case AbsolutePower::ShortcutUpdateResult::Conflict: return Result::Conflict;
+    case AbsolutePower::ShortcutUpdateResult::WriteFailure: return Result::WriteFailure;
+    }
+    return Result::Rejected;
+}
+
+Result __cdecl ProcessGameThread() noexcept {
+    try {
+        static std::atomic<bool> bridgeLogged{};
+        if (!bridgeLogged.exchange(true, std::memory_order_acq_rel)) {
+            RuntimePaths::Log(
+                "Executor",
+                "AbsoluteHOTAS selected-handler game-thread bridge is active.", true);
+        }
+        PowerRuntime::Get().TickGameThread();
+        ControlPanelSubscriber::PublishLiveState();
+        return Result::Ok;
+    } catch (...) {
+        return Result::Rejected;
+    }
+}
+
+Result __cdecl GetKeyboardBinding(const char* presetId,
+                                  AbsolutePowerApi::KeyboardBindingV1* output) noexcept {
+    if (!presetId || !*presetId || !output || output->structSize < sizeof(*output)) {
+        return Result::InvalidArgument;
+    }
+    try {
+        const auto length = strnlen_s(presetId, AbsolutePowerApi::kIdCapacity);
+        if (length == AbsolutePowerApi::kIdCapacity) return Result::InvalidArgument;
+        const auto shortcut = PowerRuntime::Get().KeyboardShortcut(
+            std::string_view(presetId, length));
+        if (!shortcut) return Result::NotFound;
+        CopyString(output->presetId, shortcut->presetId);
+        output->virtualKey = shortcut->chord.virtualKey;
+        output->modifiers =
+            (shortcut->chord.control ? AbsolutePowerApi::kKeyboardModifierControl : 0U) |
+            (shortcut->chord.alt ? AbsolutePowerApi::kKeyboardModifierAlt : 0U) |
+            (shortcut->chord.shift ? AbsolutePowerApi::kKeyboardModifierShift : 0U);
+        return Result::Ok;
+    } catch (...) {
+        return Result::Rejected;
+    }
+}
+
+Result __cdecl SetKeyboardBinding(
+    const AbsolutePowerApi::KeyboardBindingV1* input) noexcept {
+    if (!input || input->structSize < sizeof(*input) || !input->presetId[0] ||
+        input->virtualKey == 0 ||
+        (input->modifiers & ~AbsolutePowerApi::kKeyboardModifierMask) != 0) {
+        return Result::InvalidArgument;
+    }
+    try {
+        const auto length = strnlen_s(input->presetId, sizeof(input->presetId));
+        if (length == sizeof(input->presetId)) return Result::InvalidArgument;
+        const AbsolutePower::KeyboardChord chord{
+            .virtualKey = input->virtualKey,
+            .control = (input->modifiers & AbsolutePowerApi::kKeyboardModifierControl) != 0,
+            .alt = (input->modifiers & AbsolutePowerApi::kKeyboardModifierAlt) != 0,
+            .shift = (input->modifiers & AbsolutePowerApi::kKeyboardModifierShift) != 0,
+        };
+        return MapShortcutUpdate(PowerRuntime::Get().SetKeyboardShortcut(
+            std::string_view(input->presetId, length), chord));
+    } catch (...) {
+        return Result::Rejected;
+    }
+}
+
+Result __cdecl ClearKeyboardBinding(const char* presetId) noexcept {
+    if (!presetId || !*presetId) return Result::InvalidArgument;
+    try {
+        const auto length = strnlen_s(presetId, AbsolutePowerApi::kIdCapacity);
+        if (length == AbsolutePowerApi::kIdCapacity) return Result::InvalidArgument;
+        return MapShortcutUpdate(PowerRuntime::Get().ClearKeyboardShortcut(
+            std::string_view(presetId, length)));
+    } catch (...) {
+        return Result::Rejected;
+    }
+}
+
+Result __cdecl RecordWeaponFire(std::uint32_t groupIndex) noexcept {
+    if (groupIndex >= 3) return Result::InvalidArgument;
+    try {
+        PowerRuntime::Get().RecordWeaponFire(
+            static_cast<AbsolutePower::SystemId>(groupIndex),
+            AbsolutePower::WeaponFireOrigin::AbsoluteHotasBridge);
+        return Result::Ok;
+    } catch (...) {
+        return Result::Rejected;
+    }
+}
+
 const AbsolutePowerApi::ApiV1 kApi{
     .moduleId = "absolute.power",
     .displayName = "Absolute Power",
@@ -268,6 +373,11 @@ const AbsolutePowerApi::ApiV1 kApi{
     .setAutomationEnabled = &SetAutomationEnabled,
     .reloadConfiguration = &ReloadConfiguration,
     .previewPreset = &PreviewPreset,
+    .processGameThread = &ProcessGameThread,
+    .getKeyboardBinding = &GetKeyboardBinding,
+    .setKeyboardBinding = &SetKeyboardBinding,
+    .clearKeyboardBinding = &ClearKeyboardBinding,
+    .recordWeaponFire = &RecordWeaponFire,
 };
 
 } // namespace

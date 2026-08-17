@@ -51,7 +51,38 @@ struct SFSEMessagingInterface {
     bool (*registerListener)(PluginHandle, const char*, void*);
     bool (*dispatch)(PluginHandle, std::uint32_t, void*, std::uint32_t, const char*);
 };
+struct SFSETaskInterface {
+    std::uint32_t interfaceVersion;
+    void (*addTask)(void*);
+    void (*addPermanentTask)(void*);
+};
 } // namespace Impl
+
+class ITaskDelegate {
+public:
+    virtual void Run() = 0;
+    virtual void Destroy() = 0;
+};
+
+class TaskInterface {
+public:
+    [[nodiscard]] std::uint32_t Version() const noexcept { return GetProxy().interfaceVersion; }
+    void AddTask(ITaskDelegate* task) const noexcept {
+        if (task && GetProxy().addTask) {
+            GetProxy().addTask(task);
+        }
+    }
+    void AddPermanentTask(ITaskDelegate* task) const noexcept {
+        if (task && GetProxy().addPermanentTask) {
+            GetProxy().addPermanentTask(task);
+        }
+    }
+
+private:
+    [[nodiscard]] const Impl::SFSETaskInterface& GetProxy() const noexcept {
+        return reinterpret_cast<const Impl::SFSETaskInterface&>(*this);
+    }
+};
 
 class MessagingInterface {
 public:
@@ -87,6 +118,11 @@ public:
     [[nodiscard]] const MessagingInterface* GetMessagingInterface() const noexcept {
         return GetProxy().queryInterface
                    ? static_cast<const MessagingInterface*>(GetProxy().queryInterface(1))
+                   : nullptr;
+    }
+    [[nodiscard]] const TaskInterface* GetTaskInterface() const noexcept {
+        return GetProxy().queryInterface
+                   ? static_cast<const TaskInterface*>(GetProxy().queryInterface(4))
                    : nullptr;
     }
 private:

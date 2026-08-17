@@ -63,8 +63,10 @@ bool HasDemand(const std::vector<Demand>& demands, std::string_view id,
 int main() {
     AutomationEngine engine;
     engine.SetRules(MakeRules());
-    engine.SetEnabled(true);
     const auto snapshot = MakeSnapshot();
+    engine.RecordWeaponFire(SystemId::Weapon0, 900);
+    assert(engine.ActiveDemands(snapshot, 900).empty());
+    engine.SetEnabled(true);
 
     engine.RecordWeaponFire(SystemId::Weapon0, 1000);
     assert(HasDemand(engine.ActiveDemands(snapshot, 1500), "weapon", 4));
@@ -82,7 +84,8 @@ int main() {
 
     engine.SetEnabled(false);
     assert(engine.ActiveDemands(snapshot, 4200).empty());
+    engine.RecordWeaponFire(SystemId::Weapon0, 4300);
     engine.SetEnabled(true);
-    assert(engine.ActiveDemands(snapshot, 4200).empty());
+    assert(engine.ActiveDemands(snapshot, 4300).empty());
     return 0;
 }

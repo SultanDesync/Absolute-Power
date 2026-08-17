@@ -43,6 +43,9 @@ bool ReadBool(const std::filesystem::path& path, bool fallback) {
 namespace RuntimePaths {
 std::filesystem::path PluginDirectory() { return ModulePath().parent_path(); }
 std::filesystem::path DefaultsPath() { return PluginDirectory() / L"AbsolutePower.ini"; }
+std::filesystem::path ImportsDirectory() {
+    return PluginDirectory() / L"AbsolutePower_Imports";
+}
 std::filesystem::path CustomPath() { return PluginDirectory() / L"AbsolutePower_Custom.ini"; }
 std::filesystem::path WorkbenchPath() { return PluginDirectory() / L"AbsoluteWorkbench.dll"; }
 std::filesystem::path LogPath() { return PluginDirectory() / L"AbsolutePower.log"; }

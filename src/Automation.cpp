@@ -29,6 +29,7 @@ void AutomationEngine::SetEnabled(bool enabled) noexcept {
 bool AutomationEngine::Enabled() const noexcept { return enabled_; }
 
 void AutomationEngine::RecordWeaponFire(SystemId weapon, std::int64_t nowMilliseconds) noexcept {
+    if (!enabled_) return;
     const auto index = ToIndex(weapon);
     if (index < lastWeaponFireMilliseconds_.size()) {
         lastWeaponFireMilliseconds_[index] = nowMilliseconds;
@@ -36,6 +37,7 @@ void AutomationEngine::RecordWeaponFire(SystemId weapon, std::int64_t nowMillise
 }
 
 void AutomationEngine::RecordIncomingDamage(std::int64_t nowMilliseconds) noexcept {
+    if (!enabled_) return;
     lastIncomingDamageMilliseconds_ = nowMilliseconds;
 }
 

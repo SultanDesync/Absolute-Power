@@ -1,18 +1,43 @@
-# Absolute Workbench frontend handoff
+# Absolute Control frontend UX handoff
 
-This document is the UI contract for the universal Absolute Workbench project. The
-frontend lives there; this repository intentionally contains no renderer hook or ImGui
-code.
+This document is the target UX contract for the optional native Absolute Control frontend.
+Absolute Power contains only its provider adapter and provider-owned state; the menu renderer,
+navigation, and input-capture machinery live in the Control host. Power continues to load
+configuration and execute through its exact-gated standalone runtime when Control is absent,
+incompatible, rejected, or suppressed.
+
+The earlier Absolute Workbench ImGui implementation remains a useful interaction prototype, but
+it is not the production host or the owner of this contract.
+
+The detailed [AP menu integration plan](<../../Absolute Workbench/docs/AP-MENU-INTEGRATION-PLAN.md>)
+supersedes the bootstrap's direct frontend writer with a backend-owned transactional
+save contract while preserving the user-visible behavior defined here. The suite
+[headless subscriber contract](<../../Absolute Workbench/docs/HEADLESS-SUBSCRIBER-CONTRACT.md>)
+also supersedes Workbench ownership of Power keyboard shortcuts: Control captures and
+edits them, while Power persists and executes them without requiring the frontend.
+
+## Current implementation checkpoint
+
+The native provider now exposes a constant-size 35-control labeled-choice Presets workbench plus
+the segmented grid, a three-control **Automation / Cheats (Coming Soon)** safety preview, and 18
+grouped read-only Diagnostics controls. Power retains its experimental 21-control rule editor in
+source, but does not publish it in the early release. The preview explains the deferral and retains
+an immediate persisted Disable All action.
+
+The Weapon 1 research path executed, but a later cross-weapon journey exposed incomplete identity,
+policy, and settlement behavior. Automation is therefore deferred rather than promoted. A future
+handoff should redesign it around On-Demand Power and possible Auto Combat Mode before restoring an
+editable Control surface.
 
 ## Navigation
 
 Register three pages under **Ship Systems** / **Diagnostics**:
 
 1. **Power Presets**
-2. **Automation / Cheats**
+2. **Automation / Cheats (Coming Soon)**
 3. **Power Diagnostics**
 
-Use the normal Workbench fixed header and its draft/save/close behavior. The header must
+Use the normal Absolute Control fixed header and its draft/apply/cancel/close behavior. The header must
 show backend state, active preset, reactor output, allocated pips, and available pips
 when a live snapshot exists.
 
@@ -61,16 +86,28 @@ Disable activation when no pilot-ready snapshot exists, but keep editing availab
 
 ## Automation / Cheats page
 
+**Early-release treatment:** publish only **Automation / Cheats (Coming Soon)** with a read-only
+explanation and immediate Disable All action. The detailed rule-builder contract below is retained
+as research history, not the current release target. Revisit it only after the simpler On-Demand
+Power behavior and any Auto Combat Mode are specified and validated.
+
 Place a persistent amber/orange **CHANGES GAME BALANCE** banner above all controls:
 
 > Automatic power reassignment removes part of Starfield's manual ship-power challenge.
 > These rules are optional cheats and are disabled by default.
 
-The global enable switch requires a one-time confirmation. Never enable it as a side
-effect of enabling an individual rule. Show both gates on every row: global state and
-rule state.
+Never enable the global switch as a side effect of enabling an individual rule. Present an
+explicit activation checklist above the editor, number the two required switches as the global
+gate and selected-rule gate, put the selected-rule gate directly beside the selector/meaning, and
+state when **Apply** is required. The checklist must resolve to a concrete `BLOCKED`, `PENDING`, or
+`ARMED` state rather than expecting the user to infer readiness from two distant controls.
 
 ### Rule builder
+
+Use one populated rule selector as the authoritative current-record control. Each option identifies
+the rule's display name, source provenance, and current ON/OFF state. Changing selection is transient
+view navigation and must not create a pending transaction. Do not duplicate it with Previous/Next
+actions or a second selected-rule summary on hosts that support labeled choices.
 
 Each rule edits:
 
@@ -96,24 +133,31 @@ should be candid and neutral rather than moralizing.
 
 Show:
 
-- Workbench dependency/API version;
+- Absolute Control host/API version and frontend state;
 - Absolute Power backend version and runtime state;
 - Starfield runtime compatibility gate;
 - live component/pilot readiness;
 - installed systems with current/max values;
 - available and total reactor pips;
 - last preset apply result and partial-change count;
-- native seam state (`UnsupportedRuntime`, `NativeSeamUnavailable`, etc.); and
+- native state (`UnsupportedRuntime`, `NativeSeamUnavailable`, `PilotNotReady`,
+  `Rejected`, etc.); and
 - copyable log/config paths.
 
-The current alpha must present `NativeSeamUnavailable` as an expected implementation
-status, not as a successful live connection.
+`NativeSeamUnavailable` means the promoted native path could not obtain a fresh,
+fully validated snapshot or game-thread executor context. Present it as a visible
+fail-closed diagnostic, not as the expected baseline state and never as a successful
+live connection. `PilotNotReady` is ordinary contextual unavailability and should not be
+styled like an unsupported-runtime or ownership failure.
 
 ## Persistence and error handling
 
-Write `AbsolutePower_Custom.ini` through a temporary file plus atomic replace. Preserve
-unknown sections and keys where practical. After save, call `reloadConfiguration`, read
-the records back through API v1, and compare them to the draft before reporting success.
+Submit the bounded draft and its opening generation through the AP configuration
+transaction. Absolute Power writes `AbsolutePower_Custom.ini` through a temporary file
+plus atomic replace, preserves unknown sections and keys where practical, reloads, and
+compares the effective records to the submitted intent before returning success. The
+bootstrap direct writer must retain those same safeguards until the transaction replaces
+it, but new source-aware behavior must not be duplicated in each frontend.
 
 Every failed API call stays visible in the page status area. Never dismiss a failed
 apply merely because the configuration save succeeded. If an apply stops after releasing

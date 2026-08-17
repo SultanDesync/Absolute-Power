@@ -19,10 +19,13 @@ public:
 
 private:
     bool setterSignaturesReady_{};
+    std::uintptr_t module_{};
 };
 
 namespace ResearchLayout {
 inline constexpr std::uintptr_t EquipmentDescriptorGlobalRva = 0x5F2FAF8;
+// Observed research-session value only. The native descriptor field is
+// dynamically assigned and must be read live for each game process.
 inline constexpr std::uint32_t PowerEquipmentTypeId = 260072;
 inline constexpr std::uintptr_t SetAbsolutePowerRva = 0x21573A0;
 inline constexpr std::uintptr_t AddOnePowerRva = 0x2157440;
