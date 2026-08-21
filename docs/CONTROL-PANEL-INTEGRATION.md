@@ -16,14 +16,16 @@ Module `absolute.power` currently registers these stable pages:
 
 | Page ID | Visible page | Current controls |
 |---|---|---|
-| `power-presets` | Presets | Fixed-size selected-preset workbench: one authoritative source/startup-aware profile selector, explicit rename, create/duplicate/delete-or-hide/revert/startup actions, Power-owned binding, allocator preview, activation lifecycle, tie-break ordering, 18 exact tier sliders, and the six-system segmented grid |
+| `power-presets` | Presets | On a fully capable host, 19 descriptors: four semantic section headers; one authoritative source/startup-aware profile selector; rename and startup fields; Power-owned keyboard and Input Bus bindings; four inline create/duplicate/delete-or-hide/revert actions; six priority Choices explicitly associated with the six-system 12-pip grid |
 | `power-automation` | Automation / Cheats (Coming Soon) | Early-release three-control safety preview: read-only release status, a candid explanation of the unresolved policy, and immediate Disable All Automation Now. The implemented 21-control rule editor is deliberately withheld. |
-| `power-diagnostics` | Diagnostics | Fixed 18-control read-only surface grouped around compatibility, executor/snapshot/activation, live ship power, configuration/automation runtime, frontend ownership, compact support state, and Power-owned paths |
+| `power-diagnostics` | Diagnostics | Fixed 19-control read-only surface covering compatibility, executor/snapshot/activation, live ship power, configuration/automation runtime, frontend and Input Bus state, compact support state, and Power-owned paths |
 
 Control owns rendering, navigation, capture, and generic Apply/Cancel orchestration. Power owns
 the draft values behind every callback. Apply validates and atomically writes Power's custom
-configuration; Cancel restores the opening values. Activate calls the saved preset command and
-does not pretend that queue acceptance is native convergence.
+configuration; Cancel restores the opening values. The compact page does not currently publish a
+manual activation action; startup, keyboard, and Input Bus shortcuts remain Power-owned execution
+paths. Whether to add an explicit activate-saved-profile action is a product decision before final
+Power UX acceptance, not an implicit effect of changing the transient selector.
 
 The richer editor boundary is now available through
 `AbsolutePower_QueryFrontendApi(1)`. It exposes a coherent generation-stamped configuration
@@ -37,25 +39,30 @@ API remains `AbsolutePower_QueryApi(1)`.
 The host capture codec is translated at the provider boundary into Power's keyboard shortcut
 model. Configured shortcuts continue to execute through Power when Control is missing or closed.
 
-The Presets route now also registers `preset-grid`, a bounded six-column × 32-segment compound
-channel. Power publishes immutable low-rate frames through a three-slot reader-safe mailbox. Each
+The Presets route also registers `preset-grid`, a bounded six-column compound channel. Each column
+declares `maximumSegments=12`; the shared protocol retains a 32-segment upper bound without
+reserving 32 visual slots. Power publishes immutable low-rate frames through a three-slot
+reader-safe mailbox. Each
 frame carries draft tier classification, live powered pips, installed maximum, and allocator
-preview target. The graph labels Green as first, Yellow as after Green, and Red as last; it also
-explains the cyan live outline, gold preview tick, hollow capacity, and per-system G/Y/R counts.
-Pointer tier selection plus per-system add/trim events mutate the Power-owned draft; the host
+preview target. Green, Yellow, and Red pips carry 1, 2, and 3 glyphs; hollow pips remain unallocated.
+Direct pip cycling and the +G/+Y/+R/− quick steps mutate the Power-owned draft. Positional edits
+normalize intervening pips into canonical Green→Yellow→Red→Hollow order while guaranteeing that
+the activated pip acquires the requested tier. The host
 attaches the ordinary page transaction before the callback, so grid and keyboard-binding changes
 share Apply, Cancel, unregister pinning, and teardown rollback. Power throttles gameplay-driven
 publication to 10 Hz while accepted edits publish immediately.
 
-The current labeled-choice surface is deliberately constant at 35 controls (36 through the
-previous/next compatibility fallback for an older host). It does not emit controls per preset or
-truncate the backend's 256-record configuration envelope. One populated selector chooses the
-provider-owned record and identifies its source and startup status; lifecycle actions, binding, numeric tier values,
-tie-break order, preview, and the compound grid operate on that selection. Draft-mutating actions
+The current surface is deliberately constant across the backend's 256-record configuration
+envelope. With labeled choices, provider capture, structured layout, and live row associations it
+declares 19 Presets descriptors. Missing structured layout omits headers and expands inline actions
+to ordinary rows; missing labeled choices substitutes Previous/Next; missing provider capture omits
+the Input Bus binding; missing live association support leaves all six tie-break Choices in the
+ordinary list. A populated transient selector chooses the provider-owned record and identifies its
+source and startup status. Draft-mutating actions
 carry an explicit host transaction flag, so create/delete/revert/startup/order changes pin provider
 lifetime and roll back on Cancel, Close, callback failure, or abnormal session teardown exactly like
-slider and grid writes. The bounded name editor writes through that same draft, while Save & Activate
-uses a separate host ordering flag that persists the pinned draft before Power receives activation.
+grid writes. The bounded name editor and both binding controls write through that same draft. Grid
+row associations are capability-gated records, not inferred from the `order-` ID prefix.
 
 The provider still contains a constant-size selected-record editor for Power's bounded 256-rule
 research envelope, but the early release publishes only its first three safety controls. The stable
@@ -71,13 +78,15 @@ winner, and displacement telemetry remain future schema/backend work.
 
 ## Verification checkpoint
 
-- Power builds and all seven native test executables pass.
+- Power builds and all nine native test executables pass on the current development tree.
 - Configuration tests cover batch shortcut persistence, the saved automation gate, record
   provenance, the shipped Stealth allocation and 1-4 bindings, collision-free preset/rule allocation, sparse override removal, tombstones,
   unrelated-content preservation, captured-key atomic read-back, and invalid-draft rejection.
 - Shortcut tests cover the Control keyboard-capture encoding.
-- Host contract tests cover bounded text capture and both Save & Activate orderings: apply failure
-  suppresses activation and preserves the draft; apply success cleans the transaction before invoke.
+- Host contract tests retain generic apply-before-invoke ordering coverage. That is host capability
+  evidence, not a claim that the compact current Power page publishes Save & Activate.
+- Positional grid tests cover interior Green→Yellow, Yellow→Red, Red→Hollow, distant
+  Hollow→Green, full-row clearing, invalid plans, and bounds.
 - Fresh ResearchDev Starfield 1.16.244 run `ap-native-smoke-20260815-074145` registered the fixed
   37-preset/23-automation/17-diagnostic surfaces and a ready segmented grid from Power artifact
   SHA256 `9EAF799165D208F5F18C41BFB2DB7D16DA3B2489FA8A4C5CC04D30BFF549B889`. Native input selected
@@ -116,17 +125,18 @@ winner, and displacement telemetry remain future schema/backend work.
   expire before convergence. The earlier evidence therefore qualifies only the Weapon 1 proof of
   concept, not the feature. The optional HOTAS bridge also remains unqualified.
 
-This establishes mechanical exposure of Presets and Diagnostics plus a truthful Automation safety
-preview; it is not final human UX acceptance or completion of Automation. Exact pointer-grid
-traversal, scalar/grid/rename/rule
-Apply/Cancel persistence, Save & Activate interaction, Disable All interaction, and Control-absent
-in-game shortcut execution remain explicit qualification work.
+The retained runtime records establish earlier mechanical exposure of Presets and Diagnostics plus
+a truthful Automation safety preview; they are not final acceptance of the current 19-descriptor
+layout or completion of Automation. Exact pointer/controller grid traversal, row-Choice activation,
+pip-position normalization, rename/binding/grid Apply/Cancel/read-back, long device-name inspection,
+Disable All interaction, and Control-absent in-game shortcut execution remain explicit
+qualification work.
 
 ## Next Control slice
 
 Presets and Diagnostics are the supported early Power workbenches. Automation is deferred while its
 user contract is redesigned around On-Demand Power and possible Auto Combat Mode; its current rule
-builder and API are not SDK promises. The next shared-menu priority is the fail-optional
-AbsoluteHOTAS subscriber integration described in that repository's handoff. Power still needs
-preset pointer/numeric/text Apply/Cancel qualification, clipboard support, and final section/layout
-metadata before the public SDK freezes.
+builder and API are not SDK promises. Power next needs current-artifact pointer/keyboard/controller
+acceptance, binding-conflict and long-name coverage, Apply/Cancel/read-back, a decision on explicit
+manual activation, and compound frame-time measurement. Any generic gap belongs in the shared SDK;
+Power-specific coordinates or renderer branches do not.

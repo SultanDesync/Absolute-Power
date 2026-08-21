@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Automation.h"
+#include "JoystickShortcut.h"
 #include "KeyboardShortcut.h"
 #include "PowerTypes.h"
 
@@ -21,6 +22,7 @@ struct ConfigurationData {
     std::vector<Preset> presets;
     std::vector<AutomationRule> rules;
     std::vector<PresetShortcut> keyboardShortcuts;
+    std::vector<JoystickShortcut> joystickShortcuts;
 };
 
 struct KeyboardShortcutEdit {
@@ -93,6 +95,11 @@ LoadedConfiguration LoadDetailed(const std::filesystem::path& defaultsPath,
                                          std::optional<KeyboardChord> chord);
 [[nodiscard]] bool WriteKeyboardShortcuts(const std::filesystem::path& customPath,
                                           std::span<const KeyboardShortcutEdit> edits);
+[[nodiscard]] bool WriteJoystickShortcut(const std::filesystem::path& customPath,
+                                         std::string_view presetId,
+                                         std::optional<std::string_view> token);
+[[nodiscard]] bool WriteJoystickShortcuts(const std::filesystem::path& customPath,
+                                          std::span<const JoystickShortcutEdit> edits);
 [[nodiscard]] bool WriteAutomationEnabled(const std::filesystem::path& customPath,
                                           bool enabled);
 } // namespace Configuration

@@ -1,5 +1,6 @@
 #include "PowerRuntime.h"
 
+#include "InputBusClient.h"
 #include "RuntimePaths.h"
 #include "SuiteHost.h"
 
@@ -119,6 +120,7 @@ void PowerRuntime::TickGameThread() {
         RuntimePaths::Log("Executor", "First Power executor tick is running.", true);
     }
     ProcessKeyboardShortcuts();
+    ProcessJoystickShortcuts();
     std::string pending;
     const auto now = std::chrono::steady_clock::now();
     {
@@ -485,14 +487,19 @@ ConfigurationCommitReport PowerRuntime::SaveConfiguration(
         };
     }
 
-    // Logging and keyboard bindings are Power-owned but edited through their
+    // Logging and keyboard/joystick bindings are Power-owned but edited through their
     // own bounded controls. A preset/rule transaction carries them forward,
     // except that deleting a preset necessarily removes its orphan binding.
     desired.enableLog = configuration_.enableLog;
     if (preserveKeyboardBindings) {
         desired.keyboardShortcuts = configuration_.keyboardShortcuts;
+        desired.joystickShortcuts = configuration_.joystickShortcuts;
     }
     std::erase_if(desired.keyboardShortcuts, [&](const auto& shortcut) {
+        return std::ranges::find(desired.presets, shortcut.presetId,
+                                 &Preset::id) == desired.presets.end();
+    });
+    std::erase_if(desired.joystickShortcuts, [&](const auto& shortcut) {
         return std::ranges::find(desired.presets, shortcut.presetId,
                                  &Preset::id) == desired.presets.end();
     });
@@ -682,6 +689,120 @@ ShortcutUpdateResult PowerRuntime::ReplaceKeyboardShortcuts(
     return ShortcutUpdateResult::Ok;
 }
 
+std::optional<AbsolutePower::JoystickShortcut> PowerRuntime::JoystickShortcut(
+    std::string_view presetId) const {
+    std::scoped_lock lock(mutex_);
+    const auto found = std::ranges::find(configuration_.joystickShortcuts, presetId,
+                                         &AbsolutePower::JoystickShortcut::presetId);
+    return found == configuration_.joystickShortcuts.end()
+               ? std::nullopt
+               : std::optional<AbsolutePower::JoystickShortcut>(*found);
+}
+
+std::vector<AbsolutePower::JoystickShortcut> PowerRuntime::JoystickShortcuts() const {
+    std::scoped_lock lock(mutex_);
+    return configuration_.joystickShortcuts;
+}
+
+ShortcutUpdateResult PowerRuntime::SetJoystickShortcut(std::string_view presetId,
+                                                       std::string_view token) {
+    std::scoped_lock lock(mutex_);
+    if (presetId.empty() || !JoystickBindingPolicy::ValidToken(token)) {
+        return ShortcutUpdateResult::InvalidArgument;
+    }
+    if (!FindPreset(presetId)) return ShortcutUpdateResult::PresetNotFound;
+    const auto conflict = std::ranges::find_if(
+        configuration_.joystickShortcuts, [&](const AbsolutePower::JoystickShortcut& shortcut) {
+            return shortcut.presetId != presetId && shortcut.token == token;
+        });
+    if (conflict != configuration_.joystickShortcuts.end()) {
+        return ShortcutUpdateResult::Conflict;
+    }
+    if (!Configuration::WriteJoystickShortcut(RuntimePaths::CustomPath(), presetId, token)) {
+        return ShortcutUpdateResult::WriteFailure;
+    }
+    std::erase_if(configuration_.joystickShortcuts, [&](const AbsolutePower::JoystickShortcut& shortcut) {
+        return shortcut.presetId == presetId;
+    });
+    configuration_.joystickShortcuts.push_back({std::string(presetId), std::string(token)});
+    std::ranges::sort(configuration_.joystickShortcuts, {}, &AbsolutePower::JoystickShortcut::presetId);
+    ++configurationGeneration_;
+    RuntimePaths::Log(
+        "PowerBindings",
+        std::format("Preset '{}' bound to joystick {} in AbsolutePower_Custom.ini.",
+                    presetId, token));
+    return ShortcutUpdateResult::Ok;
+}
+
+ShortcutUpdateResult PowerRuntime::ClearJoystickShortcut(std::string_view presetId) {
+    std::scoped_lock lock(mutex_);
+    if (presetId.empty()) return ShortcutUpdateResult::InvalidArgument;
+    if (!Configuration::WriteJoystickShortcut(RuntimePaths::CustomPath(), presetId,
+                                               std::nullopt)) {
+        return ShortcutUpdateResult::WriteFailure;
+    }
+    std::erase_if(configuration_.joystickShortcuts, [&](const AbsolutePower::JoystickShortcut& shortcut) {
+        return shortcut.presetId == presetId;
+    });
+    ++configurationGeneration_;
+    RuntimePaths::Log("PowerBindings",
+                      std::format("Joystick shortcut cleared for preset '{}'.", presetId));
+    return ShortcutUpdateResult::Ok;
+}
+
+ShortcutUpdateResult PowerRuntime::ReplaceJoystickShortcuts(
+    const std::vector<AbsolutePower::JoystickShortcut>& shortcuts) {
+    std::scoped_lock lock(mutex_);
+    for (std::size_t index = 0; index < shortcuts.size(); ++index) {
+        const auto& shortcut = shortcuts[index];
+        if (shortcut.presetId.empty() || !FindPreset(shortcut.presetId) ||
+            !JoystickBindingPolicy::ValidToken(shortcut.token)) {
+            return ShortcutUpdateResult::InvalidArgument;
+        }
+        if (std::ranges::any_of(shortcuts.begin(), shortcuts.begin() + index,
+                [&](const auto& previous) {
+                    return previous.presetId == shortcut.presetId;
+                })) {
+            return ShortcutUpdateResult::InvalidArgument;
+        }
+        if (std::ranges::any_of(shortcuts.begin(), shortcuts.begin() + index,
+                [&](const auto& previous) {
+                    return previous.token == shortcut.token;
+                })) {
+            return ShortcutUpdateResult::Conflict;
+        }
+    }
+
+    std::vector<JoystickShortcutEdit> edits;
+    edits.reserve(configuration_.presets.size());
+    for (const auto& preset : configuration_.presets) {
+        const auto current = std::ranges::find(configuration_.joystickShortcuts, preset.id,
+                                                &AbsolutePower::JoystickShortcut::presetId);
+        const auto desired = std::ranges::find(shortcuts, preset.id,
+                                                &AbsolutePower::JoystickShortcut::presetId);
+        const bool currentBound = current != configuration_.joystickShortcuts.end();
+        const bool desiredBound = desired != shortcuts.end();
+        if (currentBound == desiredBound &&
+            (!currentBound || current->token == desired->token)) {
+            continue;
+        }
+        edits.push_back({preset.id,
+                         desiredBound ? std::optional(desired->token) : std::nullopt});
+    }
+    if (!Configuration::WriteJoystickShortcuts(RuntimePaths::CustomPath(), edits)) {
+        return ShortcutUpdateResult::WriteFailure;
+    }
+    configuration_.joystickShortcuts = shortcuts;
+    std::ranges::sort(configuration_.joystickShortcuts, {}, &AbsolutePower::JoystickShortcut::presetId);
+    ++configurationGeneration_;
+    RuntimePaths::Log(
+        "PowerBindings",
+        std::format("Committed {} joystick preset binding{} from Absolute Control.",
+                    configuration_.joystickShortcuts.size(),
+                    configuration_.joystickShortcuts.size() == 1 ? "" : "s"));
+    return ShortcutUpdateResult::Ok;
+}
+
 void PowerRuntime::ProcessKeyboardShortcuts() {
     const bool suppressed = SuiteHost::KeyboardInputSuppressed();
     std::vector<std::string> triggered;
@@ -695,6 +816,20 @@ void PowerRuntime::ProcessKeyboardShortcuts() {
             }
         }
     }
+    for (const auto& presetId : triggered) {
+        (void)InvokeCommand("preset:" + presetId);
+    }
+}
+
+void PowerRuntime::ProcessJoystickShortcuts() {
+    if (SuiteHost::KeyboardInputSuppressed()) return;
+    std::vector<AbsolutePower::JoystickShortcut> shortcuts;
+    {
+        std::scoped_lock lock(mutex_);
+        shortcuts = configuration_.joystickShortcuts;
+    }
+    if (shortcuts.empty()) return;
+    const auto triggered = InputBusClient::Get().PollPressedPresets(shortcuts);
     for (const auto& presetId : triggered) {
         (void)InvokeCommand("preset:" + presetId);
     }

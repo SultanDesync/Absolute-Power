@@ -25,6 +25,12 @@ captures and edits those records through the Power API. Established bindings the
 remain usable without the shared UI. When both frontends are installed they share the same
 Power runtime, presets, and exported commands; UI arbitration does not disable the backend.
 
+The current Control surface is the compact reference for compound subscriber UI: semantic section
+headers, inline profile actions, keyboard and Input Bus bindings, and a six-row 12-pip allocation
+grid with 1/2/3 tier glyphs, direct four-state pip cycling, quick-step buttons, and explicitly
+associated per-row priority Choices. Every edit remains in Power's ordinary Apply/Cancel draft.
+Older hosts receive bounded fallbacks rather than inferred layout.
+
 Configuration precedence is `AbsolutePower.ini`, then filename-sorted
 `AbsolutePower_Imports\*.ini` preset packs, then `AbsolutePower_Custom.ini`. A pack can
 therefore be installed as its own mod without replacing Power or the user's settings.
@@ -61,10 +67,13 @@ This repository is a buildable `0.2.0-alpha` foundation. It currently includes:
 - shipped/default plus user-overlay configuration conventions;
 - a C-compatible API for Absolute Workbench and AbsoluteHOTAS;
 - a fail-optional Absolute Control provider adapter using the native host ABI;
+- a fail-optional Absolute Input Bus client for Power-owned joystick/throttle button and POV
+  preset shortcuts;
 - load-order-independent discovery and ABI validation of the optional Workbench and
   AbsoluteHOTAS interfaces;
 - exact Starfield 1.16.244.0 native power-setter signature gates; and
-- standalone tests for allocation policy, automation timing, and ABI shape.
+- standalone tests for allocation policy, automation timing, ABI shape, positional grid
+  normalization, and shortcut capability/failure boundaries.
 
 The live equipment-component lookup and shared-reference lifetime sequence recovered by
 the research harness is promoted intact. Preset requests are queued from either input

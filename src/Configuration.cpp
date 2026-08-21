@@ -307,6 +307,26 @@ void ApplyKeyboardShortcutSection(ConfigurationData& data,
     }
 }
 
+void ApplyJoystickShortcutSection(ConfigurationData& data,
+                                  const std::filesystem::path& path) {
+    for (const auto& [presetId, stored] :
+         ReadSectionEntries(path, L"JoystickPresetBindings")) {
+        if (presetId.empty()) continue;
+        std::erase_if(data.joystickShortcuts, [&](const JoystickShortcut& shortcut) {
+            return shortcut.presetId == presetId;
+        });
+        const auto normalized = Lower(stored);
+        if (normalized == "none" || normalized == "disabled" || normalized == "unbound") {
+            continue;
+        }
+        if (!JoystickBindingPolicy::ValidToken(stored)) continue;
+        std::erase_if(data.joystickShortcuts, [&](const JoystickShortcut& shortcut) {
+            return shortcut.token == stored;
+        });
+        data.joystickShortcuts.push_back({presetId, stored});
+    }
+}
+
 void ApplyFile(ConfigurationData& data, const std::filesystem::path& path,
                const FileSource& source,
                std::vector<ConfigurationRecordSource>& presetSources,
@@ -315,8 +335,14 @@ void ApplyFile(ConfigurationData& data, const std::filesystem::path& path,
         data.enableLog = ParseBool(*value, data.enableLog);
     if (const auto value = ReadValue(path, L"General", L"bAutomationEnabled"))
         data.automationEnabled = ParseBool(*value, data.automationEnabled);
-    if (const auto value = ReadValue(path, L"General", L"sStartupPreset"))
-        data.startupPreset = *value;
+    if (const auto value = ReadValue(path, L"General", L"sStartupPreset")) {
+        const auto normalized = Lower(*value);
+        if (normalized == "none" || normalized == "disabled" || normalized.empty()) {
+            data.startupPreset.clear();
+        } else {
+            data.startupPreset = *value;
+        }
+    }
 
     const auto hasAnyValue = [&](const std::wstring& section,
                                  std::initializer_list<const wchar_t*> keys) {
@@ -355,6 +381,7 @@ void ApplyFile(ConfigurationData& data, const std::filesystem::path& path,
         }
     }
     ApplyKeyboardShortcutSection(data, path);
+    ApplyJoystickShortcutSection(data, path);
 }
 
 bool ValidIniKey(std::string_view value) {
@@ -418,12 +445,17 @@ bool SameConfiguration(const ConfigurationData& left,
     auto rightShortcuts = right.keyboardShortcuts;
     std::ranges::sort(leftShortcuts, {}, &PresetShortcut::presetId);
     std::ranges::sort(rightShortcuts, {}, &PresetShortcut::presetId);
+    auto leftJoyShortcuts = left.joystickShortcuts;
+    auto rightJoyShortcuts = right.joystickShortcuts;
+    std::ranges::sort(leftJoyShortcuts, {}, &JoystickShortcut::presetId);
+    std::ranges::sort(rightJoyShortcuts, {}, &JoystickShortcut::presetId);
     return left.enableLog == right.enableLog &&
            left.automationEnabled == right.automationEnabled &&
            left.startupPreset == right.startupPreset &&
            SameRecordSet(left.presets, right.presets, SamePreset) &&
            SameRecordSet(left.rules, right.rules, SameRule) &&
-           leftShortcuts == rightShortcuts;
+           leftShortcuts == rightShortcuts &&
+           leftJoyShortcuts == rightJoyShortcuts;
 }
 
 bool ValidateDraft(const ConfigurationData& data, std::string& detail) {
@@ -456,7 +488,7 @@ bool ValidateDraft(const ConfigurationData& data, std::string& detail) {
             }
         }
     }
-    if (!FindRecord(data.presets, data.startupPreset)) {
+    if (!data.startupPreset.empty() && !FindRecord(data.presets, data.startupPreset)) {
         detail = "The startup preset does not exist in the submitted draft.";
         return false;
     }
@@ -485,6 +517,21 @@ bool ValidateDraft(const ConfigurationData& data, std::string& detail) {
                                            previous.chord == shortcut.chord;
                                 })) {
             detail = "A keyboard binding is invalid, duplicated, or refers to a missing preset.";
+            return false;
+        }
+    }
+    for (std::size_t index = 0; index < data.joystickShortcuts.size(); ++index) {
+        const auto& shortcut = data.joystickShortcuts[index];
+        if (!FindRecord(data.presets, shortcut.presetId) ||
+            !JoystickBindingPolicy::ValidToken(shortcut.token) ||
+            std::ranges::any_of(data.joystickShortcuts.begin(),
+                                data.joystickShortcuts.begin() + index,
+                                [&](const auto& previous) {
+                                    return Lower(previous.presetId) ==
+                                               Lower(shortcut.presetId) ||
+                                           previous.token == shortcut.token;
+                                })) {
+            detail = "A joystick binding is invalid, duplicated, or refers to a missing preset.";
             return false;
         }
     }
@@ -600,6 +647,16 @@ const PresetShortcut* FindShortcut(const std::vector<PresetShortcut>& shortcuts,
     return found == shortcuts.end() ? nullptr : &*found;
 }
 
+const JoystickShortcut* FindJoystickShortcut(
+    const std::vector<JoystickShortcut>& shortcuts,
+    std::string_view presetId) {
+    const auto normalized = Lower(presetId);
+    const auto found = std::ranges::find_if(shortcuts, [&](const auto& shortcut) {
+        return Lower(shortcut.presetId) == normalized;
+    });
+    return found == shortcuts.end() ? nullptr : &*found;
+}
+
 bool WriteKeyboardOverlay(const std::filesystem::path& path,
                           const ConfigurationData& inherited,
                           const ConfigurationData& desired) {
@@ -630,6 +687,40 @@ bool WriteKeyboardOverlay(const std::filesystem::path& path,
             value = "None";
         }
         ok = ok && WriteValue(path, "KeyboardPresetBindings", id, value);
+    }
+    return ok;
+}
+
+bool WriteJoystickOverlay(const std::filesystem::path& path,
+                          const ConfigurationData& inherited,
+                          const ConfigurationData& desired) {
+    std::set<std::string> presetIds;
+    for (const auto& shortcut : inherited.joystickShortcuts) {
+        presetIds.insert(Lower(shortcut.presetId));
+    }
+    for (const auto& shortcut : desired.joystickShortcuts) {
+        presetIds.insert(Lower(shortcut.presetId));
+    }
+    for (const auto& [presetId, value] :
+         ReadSectionEntries(path, L"JoystickPresetBindings")) {
+        (void)value;
+        presetIds.insert(Lower(presetId));
+    }
+    bool ok = true;
+    for (const auto& normalized : presetIds) {
+        const auto* base = FindJoystickShortcut(inherited.joystickShortcuts, normalized);
+        const auto* draft = FindJoystickShortcut(desired.joystickShortcuts, normalized);
+        const std::string id = draft ? draft->presetId
+                               : base ? base->presetId : normalized;
+        std::optional<std::string> value;
+        if (draft) {
+            if (!base || !(base->token == draft->token)) {
+                value = draft->token;
+            }
+        } else if (base) {
+            value = "None";
+        }
+        ok = ok && WriteValue(path, "JoystickPresetBindings", id, value);
     }
     return ok;
 }
@@ -704,6 +795,11 @@ LoadedConfiguration LoadDetailed(const std::filesystem::path& defaultsPath,
                data.presets.end();
     });
     std::ranges::sort(data.keyboardShortcuts, {}, &PresetShortcut::presetId);
+    std::erase_if(data.joystickShortcuts, [&](const JoystickShortcut& shortcut) {
+        return std::ranges::find(data.presets, shortcut.presetId, &Preset::id) ==
+               data.presets.end();
+    });
+    std::ranges::sort(data.joystickShortcuts, {}, &JoystickShortcut::presetId);
     return loaded;
 }
 
@@ -798,7 +894,7 @@ SaveConfigurationReport Save(const std::filesystem::path& defaultsPath,
         temporary, "General", "sStartupPreset",
         desired.startupPreset == inherited.startupPreset
             ? std::optional<std::string>{}
-            : std::optional(desired.startupPreset));
+            : std::optional(desired.startupPreset.empty() ? std::string("None") : desired.startupPreset));
     wrote = wrote && WriteValue(
         temporary, "General", "bAutomationEnabled",
         desired.automationEnabled == inherited.automationEnabled
@@ -849,6 +945,7 @@ SaveConfigurationReport Save(const std::filesystem::path& defaultsPath,
         wrote = wrote && WriteRuleOverlay(temporary, baseRecord, draftRecord, id);
     }
     wrote = wrote && WriteKeyboardOverlay(temporary, inherited, desired);
+    wrote = wrote && WriteJoystickOverlay(temporary, inherited, desired);
     if (wrote) WritePrivateProfileStringW(nullptr, nullptr, nullptr, temporary.c_str());
     if (!wrote) {
         std::filesystem::remove(temporary, error);
@@ -960,6 +1057,86 @@ bool WriteKeyboardShortcuts(const std::filesystem::path& customPath,
                                        : L"None";
         wrote = wrote && WritePrivateProfileStringW(
                              L"KeyboardPresetBindings", key.c_str(), value.c_str(),
+                             temporary.c_str()) != FALSE;
+        if (!wrote) break;
+    }
+    if (wrote) {
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, temporary.c_str());
+    }
+
+    bool replaced{};
+    if (wrote) {
+        if (existed) {
+            replaced = ReplaceFileW(customPath.c_str(), temporary.c_str(), nullptr,
+                                    REPLACEFILE_WRITE_THROUGH, nullptr, nullptr) != FALSE;
+            if (!replaced) {
+                replaced = MoveFileExW(
+                    temporary.c_str(), customPath.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+            }
+        } else {
+            replaced = MoveFileExW(
+                temporary.c_str(), customPath.c_str(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+        }
+    }
+    if (!replaced) {
+        std::filesystem::remove(temporary, error);
+    }
+    return replaced;
+}
+
+bool WriteJoystickShortcut(const std::filesystem::path& customPath,
+                           std::string_view presetId,
+                           std::optional<std::string_view> token) {
+    const JoystickShortcutEdit edit{
+        std::string(presetId),
+        token ? std::optional(std::string(*token)) : std::nullopt};
+    return WriteJoystickShortcuts(customPath, std::span(&edit, 1));
+}
+
+bool WriteJoystickShortcuts(const std::filesystem::path& customPath,
+                            std::span<const JoystickShortcutEdit> edits) {
+    for (std::size_t index = 0; index < edits.size(); ++index) {
+        const auto& edit = edits[index];
+        if (!ValidIniKey(edit.presetId) ||
+            (edit.token && !JoystickBindingPolicy::ValidToken(*edit.token)) ||
+            std::ranges::any_of(edits.first(index), [&](const auto& previous) {
+                return previous.presetId == edit.presetId;
+            })) {
+            return false;
+        }
+    }
+    if (edits.empty()) return true;
+
+    std::error_code error;
+    if (!customPath.parent_path().empty()) {
+        std::filesystem::create_directories(customPath.parent_path(), error);
+        if (error) return false;
+    }
+    auto temporary = customPath;
+    temporary += L".joystick.tmp";
+    std::filesystem::remove(temporary, error);
+    error.clear();
+
+    const bool existed = std::filesystem::exists(customPath, error);
+    if (error) return false;
+    if (existed) {
+        std::filesystem::copy_file(customPath, temporary,
+                                   std::filesystem::copy_options::overwrite_existing,
+                                   error);
+        if (error) return false;
+    } else {
+        std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+        if (!stream) return false;
+    }
+
+    bool wrote = true;
+    for (const auto& edit : edits) {
+        const std::wstring key = Widen(edit.presetId);
+        const std::wstring value = edit.token ? Widen(*edit.token) : L"None";
+        wrote = wrote && WritePrivateProfileStringW(
+                             L"JoystickPresetBindings", key.c_str(), value.c_str(),
                              temporary.c_str()) != FALSE;
         if (!wrote) break;
     }

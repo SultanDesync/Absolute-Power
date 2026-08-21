@@ -229,6 +229,41 @@ int main() {
     assert(transactionText.contains("Deleted=true"));
     assert(!transactionText.contains("Name=User Balanced"));
 
+    assert(Configuration::WriteJoystickShortcut(
+        customPath, "Balanced", "{01234567-89AB-CDEF-0123-456789ABCDEF}@button:1"));
+    const auto joyLoaded = Configuration::Load(
+        std::filesystem::path("tests") / "missing-default.ini",
+        std::filesystem::path("tests") / "missing-imports", customPath);
+    assert(joyLoaded.joystickShortcuts.size() == 1);
+    assert(joyLoaded.joystickShortcuts.front().presetId == "Balanced");
+    assert(joyLoaded.joystickShortcuts.front().token == "{01234567-89AB-CDEF-0123-456789ABCDEF}@button:1");
+
+    assert(Configuration::WriteJoystickShortcut(customPath, "Balanced", std::nullopt));
+    const auto joyCleared = Configuration::Load(
+        std::filesystem::path("tests") / "missing-default.ini",
+        std::filesystem::path("tests") / "missing-imports", customPath);
+    assert(joyCleared.joystickShortcuts.empty());
+
+    const std::array joyBatch{
+        JoystickShortcutEdit{"Balanced", "{01234567-89AB-CDEF-0123-456789ABCDEF}@button:3"},
+        JoystickShortcutEdit{"Travel", "{01234567-89AB-CDEF-0123-456789ABCDEF}@pov:1:N"},
+    };
+    assert(Configuration::WriteJoystickShortcuts(customPath, joyBatch));
+    const auto joyBatched = Configuration::Load(
+        std::filesystem::path("tests") / "missing-default.ini",
+        std::filesystem::path("tests") / "missing-imports", customPath);
+    assert(joyBatched.joystickShortcuts.size() == 2);
+
+    auto clearedStartup = desired;
+    clearedStartup.startupPreset.clear();
+    const auto savedCleared = Configuration::Save(
+        defaultsPath, importsPath, transactionCustomPath,
+        sourced.inherited, clearedStartup);
+    assert(savedCleared.result == SaveConfigurationResult::Ok);
+    assert(savedCleared.configuration.effective.startupPreset.empty());
+    const auto reloadedCleared = Configuration::Load(defaultsPath, importsPath, transactionCustomPath);
+    assert(reloadedCleared.startupPreset.empty());
+
     auto invalid = desired;
     invalid.startupPreset = "Missing";
     assert(Configuration::Save(defaultsPath, importsPath, transactionCustomPath,

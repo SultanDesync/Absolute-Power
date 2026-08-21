@@ -4,6 +4,7 @@
 #include "ControlPanelSubscriber.h"
 #include "GameTaskScheduler.h"
 #include "GameUpdateHook.h"
+#include "InputBusClient.h"
 #include "RuntimePaths.h"
 #include "SuiteHost.h"
 #include "WeaponFireHook.h"
@@ -34,6 +35,7 @@ void QueuePowerGameTask() noexcept {
 
 void SelectHostAndInitialize() {
     if (g_initialized.exchange(true)) return;
+    AbsolutePower::InputBusClient::Get().Discover();
     const auto selection = SuiteHost::Select();
     // HOTAS owns the selected-handler slot when present and supplies the neutral
     // game-thread callback through the Power API. In every other configuration,

@@ -5,14 +5,15 @@
 #include "AbsoluteControlPanelLiveComponentsAPI.h"
 #include "Configuration.h"
 #include "GameTaskScheduler.h"
+#include "InputBusClient.h"
+#include "JoystickShortcut.h"
 #include "KeyboardShortcut.h"
 #include "PowerRuntime.h"
 #include "PowerAllocator.h"
+#include "PowerGridEditing.h"
 #include "Plugin.h"
 #include "RuntimePaths.h"
 #include "SuiteHost.h"
-
-#include <numeric>
 
 namespace {
 using namespace AbsoluteControlPanelApi;
@@ -31,6 +32,14 @@ constexpr std::string_view kPowerModuleId = "absolute.power";
 constexpr std::uint32_t kKeyboardChord =
     kBindingKeyboard | kBindingModifiers | kBindingClearable;
 
+std::string ToLower(std::string_view value) {
+    std::string result(value);
+    for (char& ch : result) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return result;
+}
+
 std::atomic<const ApiV1*> g_hostApi{};
 std::atomic<const Live::ExperimentalApiV1*> g_liveHostApi{};
 std::atomic<bool> g_registered{};
@@ -39,25 +48,17 @@ std::mutex g_registrationMutex;
 struct PresetControl {
     enum class Kind : std::uint8_t {
         Selector,
-        ActivationStatus,
-        PreviewSummary,
-        OrderSummary,
         Previous,
         Next,
-        PreviousOrderSystem,
-        NextOrderSystem,
-        MoveEarlier,
-        MoveLater,
         Create,
         Duplicate,
         DeleteOrHide,
         RevertOverride,
-        SetStartup,
-        ActivateSelected,
-        SaveAndActivate,
+        StartupToggle,
+        SystemTieBreak,
         Name,
         Binding,
-        TierValue,
+        JoystickBinding,
     };
     std::string controlId;
     Kind kind{Kind::Selector};
@@ -74,7 +75,6 @@ struct PresetPageState {
     AbsolutePower::ConfigurationData draft;
     std::vector<AbsolutePower::ConfigurationRecordSource> sources;
     std::string selectedPresetId;
-    AbsolutePower::SystemId selectedOrderSystem{AbsolutePower::SystemId::Weapon0};
     std::vector<PresetControl> records;
     std::vector<ControlDescriptorV1> controls;
 };
@@ -448,10 +448,8 @@ std::string_view ShortSystemLabel(AbsolutePower::SystemId system) noexcept {
     return index < labels.size() ? labels[index] : "?";
 }
 
-std::string OrderSummary(const AbsolutePower::Preset& preset) {
-    std::string result = "Focus ";
-    result += ShortSystemLabel(g_presets.selectedOrderSystem);
-    result += " | ";
+std::string TieBreakChain(const AbsolutePower::Preset& preset) {
+    std::string result;
     for (std::size_t index = 0; index < preset.tieBreakOrder.size(); ++index) {
         if (index != 0) result += " > ";
         result += ShortSystemLabel(preset.tieBreakOrder[index]);
@@ -459,34 +457,10 @@ std::string OrderSummary(const AbsolutePower::Preset& preset) {
     return result;
 }
 
-std::string PreviewSummary(const AbsolutePower::Preset& preset) {
-    AbsolutePower::Snapshot snapshot{};
-    const auto snapshotResult = PowerRuntime::Get().Capture(snapshot);
-    if (snapshotResult != BackendResult::Ok) {
-        return "Live preview unavailable; editing and saving remain available";
-    }
-    const auto allocation = AbsolutePower::PowerAllocator::Allocate(snapshot, preset);
-    if (allocation.status != AbsolutePower::AllocationStatus::Ok) {
-        return "Preview rejected the current draft allocation";
-    }
-    const auto assigned = std::accumulate(
-        allocation.target.begin(), allocation.target.end(), std::uint32_t{});
-    return std::format("{} assigned | {} unassigned | {} clipped",
-        assigned, allocation.unassigned, allocation.clippedPresetPips);
-}
-
-std::uint16_t& TierValue(AbsolutePower::TierPlan& plan,
-                         AbsolutePower::PriorityTier tier) noexcept {
-    if (tier == AbsolutePower::PriorityTier::Yellow) return plan.yellow;
-    if (tier == AbsolutePower::PriorityTier::Red) return plan.red;
-    return plan.green;
-}
-
-std::uint16_t TierValue(const AbsolutePower::TierPlan& plan,
-                        AbsolutePower::PriorityTier tier) noexcept {
-    if (tier == AbsolutePower::PriorityTier::Yellow) return plan.yellow;
-    if (tier == AbsolutePower::PriorityTier::Red) return plan.red;
-    return plan.green;
+std::size_t TieBreakPriority(const AbsolutePower::Preset& preset, AbsolutePower::SystemId system) {
+    const auto found = std::ranges::find(preset.tieBreakOrder, system);
+    if (found == preset.tieBreakOrder.end()) return AbsolutePower::kSystemCount;
+    return 1 + static_cast<std::size_t>(std::distance(preset.tieBreakOrder.begin(), found));
 }
 
 std::optional<KeyboardChord> FindBinding(
@@ -502,6 +476,115 @@ void SetBinding(std::vector<PresetShortcut>& shortcuts, std::string_view presetI
     });
     if (chord) shortcuts.push_back({std::string(presetId), *chord});
     std::ranges::sort(shortcuts, {}, &PresetShortcut::presetId);
+}
+
+std::optional<std::string> FindJoystickBinding(
+    const std::vector<AbsolutePower::JoystickShortcut>& shortcuts, std::string_view presetId) {
+    const auto found = std::ranges::find(
+        shortcuts, presetId, &AbsolutePower::JoystickShortcut::presetId);
+    return found == shortcuts.end() ? std::nullopt : std::optional(found->token);
+}
+
+void SetJoystickBinding(std::vector<AbsolutePower::JoystickShortcut>& shortcuts,
+                        std::string_view presetId,
+                        std::optional<std::string_view> token) {
+    std::erase_if(shortcuts, [&](const auto& shortcut) {
+        return shortcut.presetId == presetId;
+    });
+    if (token && !token->empty()) {
+        shortcuts.push_back({std::string(presetId), std::string(*token)});
+    }
+    std::ranges::sort(shortcuts, {}, &AbsolutePower::JoystickShortcut::presetId);
+}
+
+bool ControllerBindingControl(std::string_view id) noexcept {
+    return id == "preset-joystick-binding";
+}
+
+Result __cdecl BeginPresetBindingCapture(void*, const char* rawId) noexcept {
+    if (!rawId || !ControllerBindingControl(rawId)) return Result::NotFound;
+    return AbsolutePower::InputBusClient::Get().BeginCapture(rawId);
+}
+
+Result __cdecl PollPresetBindingCapture(void*, const char* rawId,
+                                       BindingCaptureV1* output) noexcept {
+    if (!rawId || !ControllerBindingControl(rawId) || !output ||
+        output->structSize < sizeof(BindingCaptureV1)) return Result::InvalidArgument;
+    const auto res = AbsolutePower::InputBusClient::Get().PollCapture(rawId, output);
+    if (res != Result::Ok) return res;
+    if (output->state == AbsoluteControlPanelApi::BindingCaptureState::Captured) {
+        // Check if captured token conflicts with another preset's joystick binding
+        const auto view = PowerRuntime::Get().ConfigurationSnapshot();
+        std::scoped_lock lock(g_presets.mutex);
+        const auto& data = g_presets.editing ? g_presets.draft : view.data;
+        const auto selectedPresetId = g_presets.selectedPresetId;
+        const std::string_view token{output->binding};
+        const auto conflict = std::ranges::find_if(
+            data.joystickShortcuts, [&](const AbsolutePower::JoystickShortcut& shortcut) {
+                return shortcut.presetId != selectedPresetId && shortcut.token == token;
+            });
+        if (conflict != data.joystickShortcuts.end()) {
+            const auto conflictingPreset = std::ranges::find(
+                data.presets, conflict->presetId, &AbsolutePower::Preset::id);
+            output->state = AbsoluteControlPanelApi::BindingCaptureState::Error;
+            if (conflictingPreset != data.presets.end() && !conflictingPreset->displayName.empty()) {
+                Copy(output->detail,
+                     std::format("Binding already in use by '{}'", conflictingPreset->displayName));
+            } else {
+                Copy(output->detail, "Binding already in use");
+            }
+        }
+    }
+    return Result::Ok;
+}
+
+Result __cdecl CancelPresetBindingCapture(void*, const char* rawId) noexcept {
+    if (!rawId || !ControllerBindingControl(rawId)) return Result::NotFound;
+    return AbsolutePower::InputBusClient::Get().CancelCapture(rawId);
+}
+
+Result __cdecl ReassignPresetBinding(void*, const char* rawId,
+                                     const char* rawBinding) noexcept {
+    if (!rawId || !rawBinding || rawBinding[0] == '\0') {
+        return Result::InvalidArgument;
+    }
+    try {
+        const std::string_view controlId{rawId};
+        const std::string_view binding{rawBinding};
+        const auto view = PowerRuntime::Get().ConfigurationSnapshot();
+        {
+            std::scoped_lock lock(g_presets.mutex);
+            BeginPresetDraft(view);
+            const auto selectedPresetId = g_presets.selectedPresetId;
+            if (selectedPresetId.empty()) return Result::NotReady;
+            if (controlId == "preset-binding") {
+                const auto chord = AbsolutePower::KeyboardShortcutPolicy::Parse(binding);
+                if (!chord) return Result::InvalidArgument;
+                std::erase_if(g_presets.draft.keyboardShortcuts,
+                    [&](const auto& shortcut) {
+                        return shortcut.chord == *chord;
+                    });
+                SetBinding(g_presets.draft.keyboardShortcuts,
+                           selectedPresetId, chord);
+            } else if (controlId == "preset-joystick-binding") {
+                if (!AbsolutePower::JoystickBindingPolicy::ValidToken(binding)) {
+                    return Result::InvalidArgument;
+                }
+                std::erase_if(g_presets.draft.joystickShortcuts,
+                    [&](const auto& shortcut) {
+                        return shortcut.token == binding;
+                    });
+                SetJoystickBinding(g_presets.draft.joystickShortcuts,
+                                   selectedPresetId, binding);
+            } else {
+                return Result::NotFound;
+            }
+        }
+        PublishPowerFrame(true);
+        return Result::Ok;
+    } catch (...) {
+        return Result::Rejected;
+    }
 }
 
 Result MapCommand(BackendResult result) noexcept {
@@ -521,14 +604,7 @@ Result __cdecl ReadPresets(void*, const char* rawId, ValueV1* output) noexcept {
     try {
         const auto* control = FindPresetControl(rawId);
         if (!control) return Result::NotFound;
-        if (control->kind == PresetControl::Kind::ActivationStatus) {
-            *output = String(ActivationSummary(
-                PowerRuntime::Get().ActivationSnapshot()));
-            return Result::Ok;
-        }
         auto view = PowerRuntime::Get().ConfigurationSnapshot();
-        AbsolutePower::Preset previewPreset;
-        bool previewRequested{};
         {
             std::scoped_lock lock(g_presets.mutex);
             auto& data = g_presets.editing ? g_presets.draft : view.data;
@@ -541,27 +617,26 @@ Result __cdecl ReadPresets(void*, const char* rawId, ValueV1* output) noexcept {
                     &AbsolutePower::Preset::id);
                 if (selected == data.presets.end()) return Result::NotReady;
                 *output = Integer(std::distance(data.presets.begin(), selected));
-            } else if (control->kind == PresetControl::Kind::PreviewSummary) {
-                previewPreset = *preset;
-                previewRequested = true;
-            } else if (control->kind == PresetControl::Kind::OrderSummary) {
-                *output = String(OrderSummary(*preset));
+            } else if (control->kind == PresetControl::Kind::StartupToggle) {
+                const auto isStartup = data.startupPreset == preset->id;
+                *output = Boolean(isStartup);
+            } else if (control->kind == PresetControl::Kind::SystemTieBreak &&
+                       control->systemIndex < AbsolutePower::kCockpitOrder.size()) {
+                const auto system = AbsolutePower::kCockpitOrder[control->systemIndex];
+                const auto rank = TieBreakPriority(*preset, system);
+                *output = Integer(static_cast<std::int64_t>(rank > 0 ? rank - 1 : 0));
             } else if (control->kind == PresetControl::Kind::Name) {
                 *output = String(preset->displayName);
             } else if (control->kind == PresetControl::Kind::Binding) {
-                const auto binding = FindBinding(data.keyboardShortcuts, preset->id);
-                *output = String(binding ?
-                    AbsolutePower::KeyboardShortcutPolicy::StorageName(*binding) :
-                    "Unbound");
-            } else if (control->kind == PresetControl::Kind::TierValue &&
-                       control->systemIndex < AbsolutePower::kSystemCount) {
-                *output = Integer(TierValue(
-                    preset->systems[control->systemIndex], control->tier));
+                const auto kb = FindBinding(data.keyboardShortcuts, preset->id);
+                *output = String(kb ? AbsolutePower::KeyboardShortcutPolicy::StorageName(*kb) : "Unbound");
+            } else if (control->kind == PresetControl::Kind::JoystickBinding) {
+                const auto joy = FindJoystickBinding(data.joystickShortcuts, preset->id);
+                *output = String(joy ? AbsolutePower::InputBusClient::Get().FormatBinding(*joy) : "Unbound");
             } else {
                 return Result::NotFound;
             }
         }
-        if (previewRequested) *output = String(PreviewSummary(previewPreset));
         return Result::Ok;
     } catch (...) {
         return Result::Rejected;
@@ -570,14 +645,22 @@ Result __cdecl ReadPresets(void*, const char* rawId, ValueV1* output) noexcept {
 
 Result __cdecl WritePresets(void*, const char* rawId, const ValueV1* value) noexcept {
     if (!rawId || !value || value->structSize < sizeof(ValueV1)) {
+        RuntimePaths::Log("ControlPanel", std::format("WritePresets rejected: rawId={}, value={}, structSize={}",
+            rawId ? rawId : "null", value ? "valid" : "null", value ? value->structSize : 0));
         return Result::InvalidArgument;
     }
     try {
         const auto* control = FindPresetControl(rawId);
-        if (!control) return Result::NotFound;
+        if (!control) {
+            RuntimePaths::Log("ControlPanel", std::format("WritePresets: control '{}' not found in g_presets.records", rawId));
+            return Result::NotFound;
+        }
+        RuntimePaths::Log("ControlPanel", std::format("WritePresets: rawId={}, controlKind={}, valKind={}, intVal={}, sysIdx={}",
+            rawId, static_cast<int>(control->kind), static_cast<int>(value->kind), value->integerValue, control->systemIndex));
         const auto current = PowerRuntime::Get().ConfigurationSnapshot();
         if (control->kind == PresetControl::Kind::Selector) {
             if (value->kind != ValueKind::Integer || value->integerValue < 0) {
+                RuntimePaths::Log("ControlPanel", "WritePresets Selector rejected: invalid integer");
                 return Result::InvalidArgument;
             }
             {
@@ -586,18 +669,60 @@ Result __cdecl WritePresets(void*, const char* rawId, const ValueV1* value) noex
                 auto& data = g_presets.editing ? g_presets.draft : effective;
                 EnsureSelection(data);
                 const auto index = static_cast<std::size_t>(value->integerValue);
-                if (index >= data.presets.size()) return Result::InvalidArgument;
+                if (index >= data.presets.size()) {
+                    RuntimePaths::Log("ControlPanel", "WritePresets Selector rejected: index out of bounds");
+                    return Result::InvalidArgument;
+                }
                 g_presets.selectedPresetId = data.presets[index].id;
             }
             PublishPowerFrame(true);
+            RuntimePaths::Log("ControlPanel", "WritePresets Selector OK");
             return Result::Ok;
         }
         {
             std::scoped_lock lock(g_presets.mutex);
             BeginPresetDraft(current);
             auto* preset = FindSelected(g_presets.draft);
-            if (!preset) return Result::NotReady;
-            if (control->kind == PresetControl::Kind::Name) {
+            if (!preset) {
+                RuntimePaths::Log("ControlPanel", "WritePresets rejected: preset not found in draft");
+                return Result::NotReady;
+            }
+            if (control->kind == PresetControl::Kind::StartupToggle) {
+                if (value->kind != ValueKind::Boolean || value->booleanValue > 1) {
+                    RuntimePaths::Log("ControlPanel", "WritePresets StartupToggle rejected: invalid boolean");
+                    return Result::InvalidArgument;
+                }
+                if (value->booleanValue != 0) {
+                    g_presets.draft.startupPreset = preset->id;
+                } else if (g_presets.draft.startupPreset == preset->id) {
+                    g_presets.draft.startupPreset.clear();
+                }
+            } else if (control->kind == PresetControl::Kind::SystemTieBreak &&
+                control->systemIndex < AbsolutePower::kCockpitOrder.size()) {
+                if (value->kind != ValueKind::Integer || value->integerValue < 0 ||
+                    value->integerValue >= static_cast<std::int64_t>(AbsolutePower::kSystemCount)) {
+                    RuntimePaths::Log("ControlPanel", std::format("WritePresets SystemTieBreak rejected: valKind={}, intVal={}",
+                        static_cast<int>(value->kind), value->integerValue));
+                    return Result::InvalidArgument;
+                }
+                const auto system = AbsolutePower::kCockpitOrder[control->systemIndex];
+                const auto targetIndex = static_cast<std::size_t>(value->integerValue);
+                auto currentPos = std::ranges::find(preset->tieBreakOrder, system);
+                if (currentPos != preset->tieBreakOrder.end()) {
+                    const auto from = static_cast<std::size_t>(
+                        std::distance(preset->tieBreakOrder.begin(), currentPos));
+                    const auto to = targetIndex;
+                    if (from < to) {
+                        std::rotate(preset->tieBreakOrder.begin() + from,
+                                    preset->tieBreakOrder.begin() + from + 1,
+                                    preset->tieBreakOrder.begin() + to + 1);
+                    } else if (from > to) {
+                        std::rotate(preset->tieBreakOrder.begin() + to,
+                                    preset->tieBreakOrder.begin() + from,
+                                    preset->tieBreakOrder.begin() + from + 1);
+                    }
+                }
+            } else if (control->kind == PresetControl::Kind::Name) {
                 if (value->kind != ValueKind::String ||
                     !std::memchr(value->stringValue, '\0', kStringValueCapacity)) {
                     return Result::InvalidArgument;
@@ -614,43 +739,59 @@ Result __cdecl WritePresets(void*, const char* rawId, const ValueV1* value) noex
                     return Result::InvalidArgument;
                 }
                 const std::string_view encoded{value->stringValue};
-                std::optional<KeyboardChord> proposed;
-                if (!encoded.empty()) {
-                    proposed = AbsolutePower::KeyboardShortcutPolicy::Parse(encoded);
+                const auto lowerEncoded = ToLower(encoded);
+                if (encoded.empty() || lowerEncoded == "none" || lowerEncoded == "unbound" ||
+                    lowerEncoded == "clear" || lowerEncoded == "cleared" || lowerEncoded == "empty") {
+                    SetBinding(g_presets.draft.keyboardShortcuts, preset->id, std::nullopt);
+                } else {
+                    const auto proposed = AbsolutePower::KeyboardShortcutPolicy::Parse(encoded);
                     if (!proposed) return Result::InvalidArgument;
+                    if (std::ranges::any_of(
+                            g_presets.draft.keyboardShortcuts,
+                            [&](const auto& shortcut) {
+                                return shortcut.presetId != preset->id &&
+                                       shortcut.chord == *proposed;
+                            })) {
+                        return Result::Duplicate;
+                    }
+                    SetBinding(g_presets.draft.keyboardShortcuts, preset->id, proposed);
                 }
-                if (proposed && std::ranges::any_of(
-                        g_presets.draft.keyboardShortcuts,
-                        [&](const auto& shortcut) {
-                            return shortcut.presetId != preset->id &&
-                                   shortcut.chord == *proposed;
-                        })) {
-                    return Result::Rejected;
-                }
-                SetBinding(g_presets.draft.keyboardShortcuts, preset->id, proposed);
-            } else if (control->kind == PresetControl::Kind::TierValue &&
-                       control->systemIndex < AbsolutePower::kSystemCount) {
-                if (value->kind != ValueKind::Integer || value->integerValue < 0 ||
-                    value->integerValue > 32) {
+            } else if (control->kind == PresetControl::Kind::JoystickBinding) {
+                if (value->kind != ValueKind::String ||
+                    !std::memchr(value->stringValue, '\0', kStringValueCapacity)) {
                     return Result::InvalidArgument;
                 }
-                auto& plan = preset->systems[control->systemIndex];
-                auto& target = TierValue(plan, control->tier);
-                const auto previous = target;
-                target = static_cast<std::uint16_t>(value->integerValue);
-                const auto total = static_cast<std::uint32_t>(plan.green) +
-                                   plan.yellow + plan.red;
-                if (total > 32) {
-                    target = previous;
-                    return Result::InvalidArgument;
+                const std::string_view encoded{value->stringValue};
+                const auto lowerEncoded = ToLower(encoded);
+                if (encoded.empty() || lowerEncoded == "none" || lowerEncoded == "unbound" ||
+                    lowerEncoded == "clear" || lowerEncoded == "cleared" || lowerEncoded == "empty") {
+                    SetJoystickBinding(g_presets.draft.joystickShortcuts, preset->id, std::nullopt);
+                } else {
+                    if (!AbsolutePower::JoystickBindingPolicy::ValidToken(encoded)) {
+                        return Result::InvalidArgument;
+                    }
+                    if (std::ranges::any_of(
+                            g_presets.draft.joystickShortcuts,
+                            [&](const auto& shortcut) {
+                                return shortcut.presetId != preset->id &&
+                                       shortcut.token == encoded;
+                            })) {
+                        return Result::Duplicate;
+                    }
+                    SetJoystickBinding(g_presets.draft.joystickShortcuts, preset->id, encoded);
                 }
             } else {
                 return Result::NotFound;
             }
         }
         PublishPowerFrame(true);
+        RuntimePaths::Log("ControlPanel", std::format("WritePresets OK for rawId={}", rawId));
         return Result::Ok;
+    } catch (const std::exception& e) {
+        RuntimePaths::Log("ControlPanel", std::format("WritePresets exception: {}", e.what()));
+        return Result::Rejected;
     } catch (...) {
+        RuntimePaths::Log("ControlPanel", "WritePresets unknown exception");
         return Result::Rejected;
     }
 }
@@ -659,37 +800,60 @@ Result __cdecl ReadPresetChoiceOptions(void*, const char* rawId,
                                        ChoiceOptionV1* options,
                                        std::uint32_t capacity,
                                        std::uint32_t* count) noexcept {
-    if (!rawId || !options || !count ||
-        std::string_view(rawId) != "preset-selector") {
+    if (!rawId || !options || !count) {
         return Result::InvalidArgument;
     }
-    try {
-        const auto view = PowerRuntime::Get().ConfigurationSnapshot();
-        std::scoped_lock lock(g_presets.mutex);
-        auto effective = view.data;
-        auto& data = g_presets.editing ? g_presets.draft : effective;
-        const auto& sources = g_presets.editing ? g_presets.sources :
-                                                   view.presetSources;
-        EnsureSelection(data);
-        if (data.presets.empty()) return Result::NotReady;
-        if (capacity < data.presets.size()) return Result::CapacityExceeded;
-        for (std::size_t index = 0; index < data.presets.size(); ++index) {
-            if (options[index].structSize < sizeof(ChoiceOptionV1)) {
+    const std::string_view id{rawId};
+    if (id == "preset-selector") {
+        try {
+            const auto view = PowerRuntime::Get().ConfigurationSnapshot();
+            std::scoped_lock lock(g_presets.mutex);
+            auto effective = view.data;
+            auto& data = g_presets.editing ? g_presets.draft : effective;
+            const auto& sources = g_presets.editing ? g_presets.sources :
+                                                       view.presetSources;
+            EnsureSelection(data);
+            if (data.presets.empty()) return Result::NotReady;
+            if (capacity < data.presets.size()) return Result::CapacityExceeded;
+            for (std::size_t index = 0; index < data.presets.size(); ++index) {
+                if (options[index].structSize < sizeof(ChoiceOptionV1)) {
+                    return Result::InvalidArgument;
+                }
+                options[index].value = static_cast<std::int64_t>(index);
+                auto label = data.presets[index].displayName + "  -  " +
+                    RecordSourceLabel(data.presets[index].id, sources);
+                if (data.startupPreset == data.presets[index].id) {
+                    label += "  -  STARTUP";
+                }
+                Copy(options[index].label, label);
+            }
+            *count = static_cast<std::uint32_t>(data.presets.size());
+            return Result::Ok;
+        } catch (...) {
+            return Result::Rejected;
+        }
+    }
+    if (id.starts_with("order-")) {
+        if (capacity < AbsolutePower::kSystemCount) return Result::CapacityExceeded;
+        constexpr std::array<std::string_view, 6> priorityLabels{
+            "1st Priority (Highest)",
+            "2nd Priority",
+            "3rd Priority",
+            "4th Priority",
+            "5th Priority",
+            "6th Priority (Lowest)",
+        };
+        for (std::size_t i = 0; i < priorityLabels.size(); ++i) {
+            if (options[i].structSize < sizeof(ChoiceOptionV1)) {
                 return Result::InvalidArgument;
             }
-            options[index].value = static_cast<std::int64_t>(index);
-            auto label = data.presets[index].displayName + "  -  " +
-                RecordSourceLabel(data.presets[index].id, sources);
-            if (data.startupPreset == data.presets[index].id) {
-                label += "  -  STARTUP";
-            }
-            Copy(options[index].label, label);
+            options[i].value = static_cast<std::int64_t>(i);
+            Copy(options[i].label, priorityLabels[i]);
         }
-        *count = static_cast<std::uint32_t>(data.presets.size());
+        *count = static_cast<std::uint32_t>(priorityLabels.size());
         return Result::Ok;
-    } catch (...) {
-        return Result::Rejected;
     }
+    return Result::NotFound;
 }
 
 Result __cdecl ReadAutomationChoiceOptions(void*, const char* rawId,
@@ -759,7 +923,6 @@ Result __cdecl InvokePreset(void*, const char* rawId) noexcept {
         const auto* control = FindPresetControl(rawId);
         if (!control) return Result::NotFound;
         auto view = PowerRuntime::Get().ConfigurationSnapshot();
-        std::string activate;
         {
             std::scoped_lock lock(g_presets.mutex);
             auto& current = g_presets.editing ? g_presets.draft : view.data;
@@ -777,22 +940,6 @@ Result __cdecl InvokePreset(void*, const char* rawId) noexcept {
                     (position + current.presets.size() - 1) % current.presets.size() :
                     (position + 1) % current.presets.size();
                 g_presets.selectedPresetId = current.presets[next].id;
-            } else if (control->kind == PresetControl::Kind::PreviousOrderSystem ||
-                       control->kind == PresetControl::Kind::NextOrderSystem) {
-                const auto currentSystem = AbsolutePower::ToIndex(
-                    g_presets.selectedOrderSystem);
-                const auto next = control->kind ==
-                                          PresetControl::Kind::PreviousOrderSystem
-                                      ? (currentSystem + AbsolutePower::kSystemCount - 1) %
-                                            AbsolutePower::kSystemCount
-                                      : (currentSystem + 1) %
-                                            AbsolutePower::kSystemCount;
-                g_presets.selectedOrderSystem =
-                    static_cast<AbsolutePower::SystemId>(next);
-            } else if (control->kind == PresetControl::Kind::ActivateSelected ||
-                       control->kind == PresetControl::Kind::SaveAndActivate) {
-                if (g_presets.editing) return Result::Rejected;
-                activate = g_presets.selectedPresetId;
             } else {
                 BeginPresetDraft(view);
                 auto* selected = FindSelected(g_presets.draft);
@@ -834,9 +981,12 @@ Result __cdecl InvokePreset(void*, const char* rawId) noexcept {
                         [&](const auto& shortcut) {
                             return shortcut.presetId == removedId;
                         });
+                    std::erase_if(g_presets.draft.joystickShortcuts,
+                        [&](const auto& shortcut) {
+                            return shortcut.presetId == removedId;
+                        });
                     if (g_presets.draft.startupPreset == removedId) {
-                        g_presets.draft.startupPreset =
-                            g_presets.draft.presets.front().id;
+                        g_presets.draft.startupPreset.clear();
                     }
                     const auto next = (std::min)(
                         position, g_presets.draft.presets.size() - 1);
@@ -858,36 +1008,10 @@ Result __cdecl InvokePreset(void*, const char* rawId) noexcept {
                     }
                     *selected = *inherited;
                     source->userOverride = false;
-                } else if (control->kind == PresetControl::Kind::SetStartup) {
-                    g_presets.draft.startupPreset = selected->id;
-                } else if (control->kind == PresetControl::Kind::MoveEarlier ||
-                           control->kind == PresetControl::Kind::MoveLater) {
-                    auto position = std::ranges::find(
-                        selected->tieBreakOrder, g_presets.selectedOrderSystem);
-                    if (position == selected->tieBreakOrder.end()) {
-                        return Result::Rejected;
-                    }
-                    const auto index = static_cast<std::size_t>(
-                        std::distance(selected->tieBreakOrder.begin(), position));
-                    if (control->kind == PresetControl::Kind::MoveEarlier) {
-                        if (index == 0) return Result::Rejected;
-                        std::iter_swap(position, std::prev(position));
-                    } else {
-                        if (index + 1 >= selected->tieBreakOrder.size()) {
-                            return Result::Rejected;
-                        }
-                        std::iter_swap(position, std::next(position));
-                    }
                 } else {
                     return Result::NotFound;
                 }
             }
-        }
-        if (!activate.empty()) {
-            const auto result = PowerRuntime::Get().InvokeCommand(
-                "preset:" + activate);
-            if (result == BackendResult::Ok) GameTaskScheduler::Request();
-            return MapCommand(result);
         }
         PublishPowerFrame(true);
         if (const auto* api = g_hostApi.load(std::memory_order_acquire)) {
@@ -1010,14 +1134,14 @@ Live::LiveFrameV1 BuildPowerFrame() {
     }
     for (std::size_t system = 0; system < AbsolutePower::kSystemCount; ++system) {
         auto& column = frame.segmentedGrid.columns[system];
-        column.segmentCount = 32;
+        column.segmentCount = 12;
         column.currentCount = snapshotResult == BackendResult::Ok
                                   ? snapshot.systems[system].current : 0;
         column.maximumCount = snapshotResult == BackendResult::Ok
                                   ? snapshot.systems[system].maximum : 0;
         column.targetCount = allocation.status == AbsolutePower::AllocationStatus::Ok &&
                                      snapshotResult == BackendResult::Ok
-                                 ? allocation.target[system] : 0;
+                                  ? allocation.target[system] : 0;
         const auto plan = hasPreset ? preset.systems[system]
                                     : AbsolutePower::TierPlan{};
         for (std::uint32_t pip = 0; pip < column.segmentCount; ++pip) {
@@ -1028,6 +1152,78 @@ Live::LiveFrameV1 BuildPowerFrame() {
         }
     }
     return frame;
+}
+
+Live::Result __cdecl ReadPowerFrame(void*, Live::LiveFrameV1* output) noexcept;
+Live::Result __cdecl ApplyPowerOperation(
+    void*, const Live::CompoundOperationV1* operation,
+    Live::CompoundSnapshotV1* replacement) noexcept;
+
+bool SupportsGridControlAssociations(
+    const Live::ExperimentalApiV1* api) noexcept {
+    constexpr auto required = offsetof(Live::ExperimentalApiV1, capabilities) +
+                              sizeof(api->capabilities);
+    return api && api->structSize >= required &&
+        (api->capabilities &
+            Live::kLiveCapabilityGridControlAssociations) != 0;
+}
+
+Live::LiveChannelDescriptorV1 PowerGridChannel(
+    bool associateTieBreakControls,
+    const AbsolutePower::Preset* selectedPreset = nullptr) {
+    Live::LiveChannelDescriptorV1 channel;
+    Copy(channel.moduleId, kPowerModuleId);
+    Copy(channel.pageId, "power-presets");
+    Copy(channel.channelId, "preset-grid");
+
+    AbsolutePower::Preset fallbackPreset;
+    const AbsolutePower::Preset* preset = selectedPreset;
+    if (!preset) {
+        const auto view = PowerRuntime::Get().ConfigurationSnapshot();
+        std::scoped_lock lock(g_presets.mutex);
+        const auto& data = g_presets.editing ? g_presets.draft : view.data;
+        const auto* found = FindSelected(data);
+        if (found) {
+            fallbackPreset = *found;
+            preset = &fallbackPreset;
+        }
+    }
+
+    Copy(channel.title, "Power allocation");
+
+    channel.kind = Live::ComponentKind::SegmentedAllocationGrid;
+    channel.readLiveFrame = &ReadPowerFrame;
+    channel.applyCompoundOperation = &ApplyPowerOperation;
+    channel.flags = Live::kSegmentedGridCycleOnClick;
+    auto& grid = channel.segmentedGrid;
+    Copy(grid.controlId, "allocation");
+    grid.columnCount = static_cast<std::uint32_t>(AbsolutePower::kSystemCount);
+    grid.tierCount = 4;
+    for (std::size_t index = 0; index < AbsolutePower::kSystemCount; ++index) {
+        const auto system = AbsolutePower::kCockpitOrder[index];
+        Copy(grid.columns[index].columnId, AbsolutePower::SystemKey(system));
+        Copy(grid.columns[index].label, AbsolutePower::SystemLabel(system));
+        grid.columns[index].maximumSegments = 12;
+        if (associateTieBreakControls) {
+            auto& association = channel.associations[channel.associationCount++];
+            Copy(association.columnId, AbsolutePower::SystemKey(system));
+            Copy(association.controlId,
+                 std::format("order-{}", AbsolutePower::SystemKey(system)));
+        }
+    }
+    constexpr std::array<std::string_view, 4> tierIds{
+        "hollow", "green", "yellow", "red"};
+    constexpr std::array<std::string_view, 4> tierLabels{
+        "Unassigned", "Green / first", "Yellow / second", "Red / last"};
+    constexpr std::array<Live::VisualRole, 4> tierRoles{
+        Live::VisualRole::Neutral, Live::VisualRole::Tier1,
+        Live::VisualRole::Tier2, Live::VisualRole::Tier3};
+    for (std::size_t index = 0; index < tierIds.size(); ++index) {
+        Copy(grid.tiers[index].tierId, tierIds[index]);
+        Copy(grid.tiers[index].label, tierLabels[index]);
+        grid.tiers[index].visualRole = tierRoles[index];
+    }
+    return channel;
 }
 
 void PublishPowerFrame(bool force) {
@@ -1042,6 +1238,9 @@ void PublishPowerFrame(bool force) {
     g_lastFramePublishUs.store(now, std::memory_order_release);
     g_powerFrames.Publish(BuildPowerFrame());
     if (const auto* live = g_liveHostApi.load(std::memory_order_acquire)) {
+        const auto channel = PowerGridChannel(
+            SupportsGridControlAssociations(live));
+        (void)live->registerLiveChannel(&channel);
         (void)live->requestImmediateRefresh(
             kPowerModuleId.data(), "power-presets", "preset-grid");
     }
@@ -1088,6 +1287,20 @@ Live::Result __cdecl ApplyPowerOperation(
                 plan.yellow = static_cast<std::uint16_t>(plan.yellow - yellow);
                 trim -= yellow;
                 plan.green = static_cast<std::uint16_t>(plan.green - trim);
+            } else if (operation->kind ==
+                       Live::CompoundOperationKind::SetSegmentTier) {
+                using AbsolutePower::PowerGridEditing::SegmentTier;
+                SegmentTier nextTier{};
+                const std::string_view tierId{operation->tierId};
+                if (tierId == "green") nextTier = SegmentTier::Green;
+                else if (tierId == "yellow") nextTier = SegmentTier::Yellow;
+                else if (tierId == "red") nextTier = SegmentTier::Red;
+                else if (tierId == "hollow") nextTier = SegmentTier::Hollow;
+                else return Live::Result::InvalidArgument;
+                if (!AbsolutePower::PowerGridEditing::SetSegmentTier(
+                        plan, operation->count, nextTier, 12)) {
+                    return Live::Result::InvalidArgument;
+                }
             } else {
                 std::uint16_t* tier{};
                 const std::string_view tierId{operation->tierId};
@@ -1099,7 +1312,7 @@ Live::Result __cdecl ApplyPowerOperation(
                 *tier = static_cast<std::uint16_t>(operation->count);
                 const auto total = static_cast<std::uint32_t>(plan.green) +
                                    plan.yellow + plan.red;
-                if (total > 32) {
+                if (total > 12) {
                     *tier = previous;
                     return Live::Result::InvalidArgument;
                 }
@@ -1567,11 +1780,19 @@ Result __cdecl ReadDiagnostics(void*, const char* rawId, ValueV1* output) noexce
             *output = String(std::format("{} | result {} | {}/{} changes complete",
                 ActivationSummary(activation), BackendResultLabel(activation.backend),
                 activation.completedChanges, activation.totalChanges));
+        } else if (id == "inputbus-summary") {
+            auto& bus = AbsolutePower::InputBusClient::Get();
+            const auto devices = bus.GetDevices();
+            *output = String(std::format(
+                "Input Bus {} | devices: {}",
+                bus.IsAvailable() ? "connected (AbsoluteHOTAS)" : "unavailable",
+                devices.size()));
         } else if (id == "frontends-summary") {
             *output = String(std::format(
-                "Absolute Control {} | {} | keyboard shortcuts Power-owned",
+                "Absolute Control {} | {} | Input Bus {} | shortcuts Power-owned",
                 g_hostApi.load(std::memory_order_acquire) ? "connected" : "absent",
-                HostSelectionLabel(SuiteHost::Select())));
+                HostSelectionLabel(SuiteHost::Select()),
+                AbsolutePower::InputBusClient::Get().IsAvailable() ? "ready" : "absent"));
         } else if (id == "support-summary") {
             *output = String(std::format(
                 "Power {} | {} | snapshot {} | config gen {} | activation {}",
@@ -1615,6 +1836,8 @@ const std::array g_diagnosticControls{
             "Activation", "Requested/active state, backend result, and settlement progress."),
     Control(ControlKind::InputBinding, kControlReadOnly, "frontends-summary",
             "Frontends", "Absolute Control connection, optional executor host, and keyboard ownership."),
+    Control(ControlKind::InputBinding, kControlReadOnly, "inputbus-summary",
+            "Input Bus", "AbsoluteHOTAS Input Bus v1 connection, device count, and active device summary."),
     Control(ControlKind::InputBinding, kControlReadOnly, "support-summary",
             "Support summary", "Compact copy-friendly version, runtime, snapshot, config, and activation state."),
     Control(ControlKind::InputBinding, kControlReadOnly, "defaults-path",
@@ -1640,7 +1863,10 @@ PageDescriptorV1 Page(std::string_view id, std::string_view label,
     return page;
 }
 
-std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
+std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices,
+                                           bool providerBindingCapture,
+                                           bool bindingConflictResolution,
+                                           bool structuredLayout) {
     g_presets.records.clear();
     g_presets.controls.clear();
     g_presets.records.reserve(36);
@@ -1650,13 +1876,23 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
         g_presets.records.push_back(std::move(record));
         g_presets.controls.push_back(std::move(control));
     };
+    const auto addHeader = [&](std::string_view id, std::string_view label,
+                               std::string_view description) {
+        if (!structuredLayout) return;
+        g_presets.controls.push_back(Control(ControlKind::GroupHeader,
+            kControlNone, id, label, description));
+    };
+    const auto inlineLayout = structuredLayout ?
+        kControlLayoutInline : kControlNone;
     const auto addAction = [&](std::string_view id, PresetControl::Kind kind,
                                std::string_view label,
                                std::string_view description,
-                               bool mutatesDraft = false) {
+                               bool mutatesDraft = false,
+                               std::uint32_t layoutFlags = kControlNone) {
         add({std::string(id), kind},
             Control(ControlKind::Action,
-                    mutatesDraft ? kControlMutatesDraft : kControlNone,
+                    (mutatesDraft ? kControlMutatesDraft : kControlNone) |
+                        layoutFlags,
                     id, label, description));
     };
 
@@ -1667,6 +1903,8 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
         EnsureSelection(effective);
     }
 
+    addHeader("profile-identity", "Profile Identity",
+              "Select, name, and choose startup behavior for this profile.");
     if (labeledChoices) {
         auto selector = Control(ControlKind::Choice, kControlTransientChoice,
             "preset-selector", "Power profile",
@@ -1688,86 +1926,67 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
     if (!labeledChoices) {
         addAction("preset-previous", PresetControl::Kind::Previous,
                   "Previous preset",
-                  "Select the previous effective preset without changing the transaction.");
+                  "Select the previous effective preset without changing the transaction.",
+                  false, inlineLayout);
         addAction("preset-next", PresetControl::Kind::Next,
                   "Next preset",
-                  "Select the next effective preset without changing the transaction.");
+                  "Select the next effective preset without changing the transaction.",
+                  false, inlineLayout);
     }
-    addAction("preset-create", PresetControl::Kind::Create,
-              "Create preset",
-              "Create a new user-owned preset with a backend-allocated stable identifier.", true);
-    addAction("preset-duplicate", PresetControl::Kind::Duplicate,
-              "Duplicate preset",
-              "Create a user-owned copy of the selected effective preset.", true);
-    addAction("preset-delete", PresetControl::Kind::DeleteOrHide,
-              "Delete / hide preset",
-              "Delete a user preset or hide an inherited preset from the effective configuration.", true);
-    addAction("preset-revert", PresetControl::Kind::RevertOverride,
-              "Revert user override",
-              "Restore the selected inherited preset from its defaults or import-pack source.", true);
-    addAction("preset-startup", PresetControl::Kind::SetStartup,
-              "Use at startup",
-              "Make the selected preset Absolute Power's startup preset.", true);
+    {
+        auto startup = Control(ControlKind::Toggle, kControlNone,
+            "preset-startup", "Startup profile",
+            "Automatically activate this power profile when loading into your ship or starting a game.");
+        add({"preset-startup", PresetControl::Kind::StartupToggle}, std::move(startup));
+    }
 
+    addHeader("hardware-bindings", "Hardware Bindings",
+              "Assign keyboard and physical flight-control shortcuts.");
     add({"preset-binding", PresetControl::Kind::Binding},
         Control(ControlKind::InputBinding, kKeyboardChord,
-                "preset-binding", "Selected preset shortcut",
+                "preset-binding", "Selected preset shortcut (keyboard)",
                 "Record a Power-owned keyboard key or Ctrl, Alt, and Shift chord."));
-    add({"activation-status", PresetControl::Kind::ActivationStatus},
-        Control(ControlKind::InputBinding, kControlReadOnly,
-                "activation-status", "Activation status",
-                "Live provider-owned queue, readiness, settlement, and convergence status."));
-    add({"preview-summary", PresetControl::Kind::PreviewSummary},
-        Control(ControlKind::InputBinding, kControlReadOnly,
-                "preview-summary", "Allocation preview",
-                "Allocator-backed assigned, unassigned, and clipped pip totals for the draft."));
-    addAction("activate-selected", PresetControl::Kind::ActivateSelected,
-              "Activate saved preset",
-              "Queue the last saved version for native settlement. Apply pending changes first.");
-    add({"save-activate-selected", PresetControl::Kind::SaveAndActivate},
-        Control(ControlKind::Action, kControlAppliesDraftBeforeInvoke,
-                "save-activate-selected", "Save & activate",
-                "Atomically save pending preset changes, then queue that saved preset for native settlement."));
+    if (providerBindingCapture) {
+        constexpr std::uint32_t kControllerBinding =
+            kBindingController | kBindingClearable;
+        add({"preset-joystick-binding", PresetControl::Kind::JoystickBinding},
+            Control(ControlKind::InputBinding, kControllerBinding,
+                    "preset-joystick-binding", "Selected preset flight control (HOTAS)",
+                    "Record a physical joystick/throttle button or POV hat through the Absolute Input Bus."));
+    }
 
-    add({"order-summary", PresetControl::Kind::OrderSummary},
-        Control(ControlKind::InputBinding, kControlReadOnly,
-                "order-summary", "Within-tier tie break",
-                "Earlier systems win only when requests compete inside the same priority tier."));
-    addAction("order-system-previous", PresetControl::Kind::PreviousOrderSystem,
-              "Previous tie-break system",
-              "Move the tie-break focus to the previous cockpit system.");
-    addAction("order-system-next", PresetControl::Kind::NextOrderSystem,
-              "Next tie-break system",
-              "Move the tie-break focus to the next cockpit system.");
-    addAction("order-move-earlier", PresetControl::Kind::MoveEarlier,
-              "Move focused system earlier",
-              "Give the focused system an earlier tie-break position inside each tier.", true);
-    addAction("order-move-later", PresetControl::Kind::MoveLater,
-              "Move focused system later",
-              "Give the focused system a later tie-break position inside each tier.", true);
+    addHeader("profile-actions", "Profile Actions",
+              "Create, copy, remove, or restore profile records.");
+    addAction("preset-create", PresetControl::Kind::Create,
+              "Create preset",
+              "Create a new user-owned preset with a backend-allocated stable identifier.",
+              true, inlineLayout);
+    addAction("preset-duplicate", PresetControl::Kind::Duplicate,
+              "Duplicate preset",
+              "Create a user-owned copy of the selected effective preset.",
+              true, inlineLayout);
+    addAction("preset-delete", PresetControl::Kind::DeleteOrHide,
+              "Delete / hide preset",
+              "Delete a user preset or hide an inherited preset from the effective configuration.",
+              true, inlineLayout);
+    addAction("preset-revert", PresetControl::Kind::RevertOverride,
+              "Revert user override",
+              "Restore the selected inherited preset from its defaults or import-pack source.",
+              true, inlineLayout);
 
-    constexpr std::array tiers{
-        std::pair{AbsolutePower::PriorityTier::Green, std::string_view{"green"}},
-        std::pair{AbsolutePower::PriorityTier::Yellow, std::string_view{"yellow"}},
-        std::pair{AbsolutePower::PriorityTier::Red, std::string_view{"red"}},
-    };
-    for (std::size_t system = 0; system < AbsolutePower::kSystemCount; ++system) {
-        const auto systemId = AbsolutePower::SystemKey(
-            static_cast<AbsolutePower::SystemId>(system));
-        const auto systemLabel = AbsolutePower::SystemLabel(
-            static_cast<AbsolutePower::SystemId>(system));
-        for (const auto& [tier, tierId] : tiers) {
-            const auto controlId = std::format("tier-{}-{}", systemId, tierId);
-            auto control = Control(
-                ControlKind::IntegerSlider, kControlAdvanced, controlId,
-                std::format("{} {} pips", systemLabel, tierId),
-                "Set the exact priority-tier pip count. A system may request at most 32 total pips.");
-            control.minimumValue = 0.0;
-            control.maximumValue = 32.0;
-            control.stepValue = 1.0;
-            add({controlId, PresetControl::Kind::TierValue, system, tier},
-                std::move(control));
-        }
+    addHeader("priority-ordering", "Priority Ordering",
+              "Resolve ties between systems requesting the same tier.");
+    for (std::size_t index = 0; index < AbsolutePower::kCockpitOrder.size(); ++index) {
+        const auto system = AbsolutePower::kCockpitOrder[index];
+        const auto controlId = std::format("order-{}", AbsolutePower::SystemKey(system));
+        auto control = Control(
+            ControlKind::Choice, kControlAdvanced, controlId,
+            std::format("{} tie-break priority", AbsolutePower::SystemLabel(system)),
+            "Earlier positions win when power requests compete within the same priority tier.");
+        control.minimumValue = 0.0;
+        control.maximumValue = 5.0;
+        control.stepValue = 1.0;
+        add({controlId, PresetControl::Kind::SystemTieBreak, index}, std::move(control));
     }
 
     g_automation.records.clear();
@@ -1851,9 +2070,11 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
     }
     if (!labeledChoices) {
         automationAction("rule-previous", AutomationKind::Previous,
-            "Previous rule", "Select the previous effective automation rule.");
+            "Previous rule", "Select the previous effective automation rule.",
+            inlineLayout);
         automationAction("rule-next", AutomationKind::Next,
-            "Next rule", "Select the next effective automation rule.");
+            "Next rule", "Select the next effective automation rule.",
+            inlineLayout);
     }
     automationAction("rule-create", AutomationKind::Create,
         "Create rule", "Create a disabled user-owned Manual rule with a backend-allocated stable ID.",
@@ -1899,7 +2120,7 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
 
     auto presetsPage = Page(
         "power-presets", "Presets",
-        "Edit tiered allocations, activate saved presets, and assign Power-owned shortcuts.",
+        "Edit tiered allocations, profile identity, startup behavior, and Power-owned shortcuts.",
         g_presets.controls.data(),
         static_cast<std::uint32_t>(g_presets.controls.size()));
     presetsPage.readValue = &ReadPresets;
@@ -1909,6 +2130,14 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
     presetsPage.cancel = &CancelPresets;
     if (labeledChoices) {
         presetsPage.readChoiceOptions = &ReadPresetChoiceOptions;
+    }
+    if (providerBindingCapture) {
+        presetsPage.beginBindingCapture = &BeginPresetBindingCapture;
+        presetsPage.pollBindingCapture = &PollPresetBindingCapture;
+        presetsPage.cancelBindingCapture = &CancelPresetBindingCapture;
+    }
+    if (bindingConflictResolution) {
+        presetsPage.reassignBinding = &ReassignPresetBinding;
     }
 
     auto automationPage = Page(
@@ -1935,40 +2164,6 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices) {
     return {presetsPage, automationPage, diagnosticsPage};
 }
 
-Live::LiveChannelDescriptorV1 PowerGridChannel() {
-    Live::LiveChannelDescriptorV1 channel;
-    Copy(channel.moduleId, kPowerModuleId);
-    Copy(channel.pageId, "power-presets");
-    Copy(channel.channelId, "preset-grid");
-    Copy(channel.title, "Power allocation and priority editor");
-    channel.kind = Live::ComponentKind::SegmentedAllocationGrid;
-    channel.readLiveFrame = &ReadPowerFrame;
-    channel.applyCompoundOperation = &ApplyPowerOperation;
-    auto& grid = channel.segmentedGrid;
-    Copy(grid.controlId, "allocation");
-    grid.columnCount = static_cast<std::uint32_t>(AbsolutePower::kSystemCount);
-    grid.tierCount = 4;
-    for (std::size_t index = 0; index < AbsolutePower::kSystemCount; ++index) {
-        const auto system = AbsolutePower::kCockpitOrder[index];
-        Copy(grid.columns[index].columnId, AbsolutePower::SystemKey(system));
-        Copy(grid.columns[index].label, AbsolutePower::SystemLabel(system));
-        grid.columns[index].maximumSegments = 32;
-    }
-    constexpr std::array<std::string_view, 4> tierIds{
-        "hollow", "green", "yellow", "red"};
-    constexpr std::array<std::string_view, 4> tierLabels{
-        "Unassigned", "Green / first", "Yellow / second", "Red / last"};
-    constexpr std::array<Live::VisualRole, 4> tierRoles{
-        Live::VisualRole::Neutral, Live::VisualRole::Tier1,
-        Live::VisualRole::Tier2, Live::VisualRole::Tier3};
-    for (std::size_t index = 0; index < tierIds.size(); ++index) {
-        Copy(grid.tiers[index].tierId, tierIds[index]);
-        Copy(grid.tiers[index].label, tierLabels[index]);
-        grid.tiers[index].visualRole = tierRoles[index];
-    }
-    return channel;
-}
-
 bool Valid(const ApiV1* api) noexcept {
     constexpr auto required = offsetof(ApiV1, isInputCaptureActive) +
                               sizeof(api->isInputCaptureActive);
@@ -1984,6 +2179,27 @@ bool SupportsLabeledChoices(const ApiV1* api) noexcept {
     return api && api->structSize >= required &&
         (api->capabilities & kCapabilityLabeledChoices) != 0;
 }
+
+bool SupportsProviderBindingCapture(const ApiV1* api) noexcept {
+    constexpr auto required = offsetof(ApiV1, capabilities) +
+                              sizeof(api->capabilities);
+    return api && api->structSize >= required &&
+        (api->capabilities & kCapabilityProviderBindingCapture) != 0;
+}
+
+bool SupportsBindingConflictResolution(const ApiV1* api) noexcept {
+    constexpr auto required = offsetof(ApiV1, capabilities) +
+                              sizeof(api->capabilities);
+    return api && api->structSize >= required &&
+        (api->capabilities & kCapabilityBindingConflictResolution) != 0;
+}
+
+bool SupportsStructuredLayout(const ApiV1* api) noexcept {
+    constexpr auto required = offsetof(ApiV1, capabilities) +
+                              sizeof(api->capabilities);
+    return api && api->structSize >= required &&
+        (api->capabilities & kCapabilityStructuredLayout) != 0;
+}
 } // namespace
 
 namespace ControlPanelSubscriber {
@@ -1994,6 +2210,7 @@ AbsoluteControlPanelApi::Result RegisterDiscoveredHost() noexcept {
     try {
         std::scoped_lock registrationLock(g_registrationMutex);
         if (g_registered.load(std::memory_order_relaxed)) return Result::Ok;
+        AbsolutePower::InputBusClient::Get().Discover();
         for (const wchar_t* moduleName : {
                  L"AbsoluteControlPanel.dll",
                  L"AbsoluteControlPanelResearchDev.dll",
@@ -2010,7 +2227,10 @@ AbsoluteControlPanelApi::Result RegisterDiscoveredHost() noexcept {
             if (moduleResult != Result::Ok && moduleResult != Result::Duplicate) {
                 return moduleResult;
             }
-            const auto pages = BuildPages(SupportsLabeledChoices(api));
+            const auto pages = BuildPages(
+                SupportsLabeledChoices(api), SupportsProviderBindingCapture(api),
+                SupportsBindingConflictResolution(api),
+                SupportsStructuredLayout(api));
             for (const auto& page : pages) {
                 const auto result = api->registerPage(&page);
                 if (result != Result::Ok && result != Result::Duplicate) return result;
@@ -2022,10 +2242,12 @@ AbsoluteControlPanelApi::Result RegisterDiscoveredHost() noexcept {
                 const auto queryLive =
                     reinterpret_cast<AbsoluteControlPanelQueryLiveApi>(liveAddress);
                 const auto* live = queryLive(Live::kAbiVersion);
-                if (live && live->structSize >= sizeof(Live::ExperimentalApiV1) &&
+                if (live && live->structSize >=
+                        Live::kExperimentalApiV1BaseSize &&
                     live->abiVersion == Live::kAbiVersion &&
                     live->registerLiveChannel && live->requestImmediateRefresh) {
-                    const auto channel = PowerGridChannel();
+                    const auto channel = PowerGridChannel(
+                        SupportsGridControlAssociations(live));
                     const auto liveResult = live->registerLiveChannel(&channel);
                     if (liveResult == Live::Result::Ok ||
                         liveResult == Live::Result::Duplicate) {

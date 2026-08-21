@@ -24,8 +24,10 @@ the SFSE load boundary when appropriate.
 
 The host copies presentation descriptors. Reads, draft writes, Apply, Cancel, action execution,
 validation, persistence, and refresh state stay inside Absolute Power. The current Presets route
-uses labeled choices, bounded text, ordinary controls, and the experimental segmented-grid
-extension to expose the fixed-size provider-owned workbench. Diagnostics remains read-only. A
+uses labeled choices, bounded text, structured sections, inline actions, provider-owned keyboard
+and Input Bus capture, and the experimental segmented-grid extension to expose the fixed-size
+provider-owned workbench. Capability-gated records attach the six priority Choices to grid rows;
+older live hosts keep those Choices in the ordinary list. Diagnostics remains read-only. A
 complete selected-rule Automation editor also exists behind the same ownership boundary, but it is
 deliberately not published: cross-weapon testing did not qualify its behavior. The stable route now
 contains only the Coming Soon explanation and a persisted Disable All safety action. No Power state
@@ -52,13 +54,15 @@ overrides, rejects stale generations, and returns separate validation, write, re
 verification outcomes. `AbsolutePower_QueryApi(1)` remains available to existing command and
 game-thread clients.
 
-The same rule applies to intrinsic keyboard activation shortcuts. The first AP slice
+The same rule applies to intrinsic keyboard and Input Bus activation shortcuts. The first AP slice
 replaced Workbench's `[PowerPresetBindings]` store and polling loop with Power-owned
-`[KeyboardPresetBindings]`, additive binding callbacks, and headless execution. Control
+`[KeyboardPresetBindings]`, additive binding callbacks, and headless execution. Current Power also
+persists physical button/POV shortcuts in `[JoystickPresetBindings]` and captures them through the
+fail-optional Absolute Input Bus. Control
 remains the preferred capture/editor client. This preserves
 the suite [headless subscriber contract](<../../Absolute Workbench/docs/HEADLESS-SUBSCRIBER-CONTRACT.md>).
-HOTAS button/POV mappings remain HOTAS-owned because they depend on its device profiles
-and polling runtime.
+The Input Bus runtime and stable device identity remain HOTAS-owned; Power owns only the mapping
+from an Input Bus binding token to a preset command.
 
 The legacy manifest's `requiredHost.required=true` describes only the relationship of its
 Workbench-rendered pages. It is not a runtime dependency declaration for `AbsolutePower.dll`

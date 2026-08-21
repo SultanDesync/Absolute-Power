@@ -18,11 +18,15 @@ edits them, while Power persists and executes them without requiring the fronten
 
 ## Current implementation checkpoint
 
-The native provider now exposes a constant-size 35-control labeled-choice Presets workbench plus
-the segmented grid, a three-control **Automation / Cheats (Coming Soon)** safety preview, and 18
-grouped read-only Diagnostics controls. Power retains its experimental 21-control rule editor in
-source, but does not publish it in the early release. The preview explains the deferral and retains
-an immediate persisted Disable All action.
+On a fully capable host, the native provider exposes a constant-size 19-descriptor Presets
+workbench around the segmented grid, a three-control **Automation / Cheats (Coming Soon)** safety
+preview, and 19 read-only Diagnostics controls. Presets uses four group headers, compact inline
+lifecycle actions, keyboard and Input Bus bindings, and six priority Choices attached explicitly to
+their grid rows. Capability fallbacks remove headers/inline layout, substitute Previous/Next for a
+missing labeled selector, omit unsupported provider capture, and leave priority Choices in the
+ordinary list when row associations are unavailable. Power retains its experimental 21-control
+rule editor in source, but does not publish it in the early release. The preview explains the
+deferral and retains an immediate persisted Disable All action.
 
 The Weapon 1 research path executed, but a later cross-weapon journey exposed incomplete identity,
 policy, and settlement behavior. Automation is therefore deferred rather than promoted. A future
@@ -31,23 +35,24 @@ editable Control surface.
 
 ## Navigation
 
-Register three pages under **Ship Systems** / **Diagnostics**:
+Register three pages under the **Absolute Power** module:
 
 1. **Power Presets**
 2. **Automation / Cheats (Coming Soon)**
 3. **Power Diagnostics**
 
-Use the normal Absolute Control fixed header and its draft/apply/cancel/close behavior. The header must
-show backend state, active preset, reactor output, allocated pips, and available pips
-when a live snapshot exists.
+Use the normal Absolute Control header and its draft/apply/cancel/close behavior. Live reactor and
+allocation state belongs in the grid and Diagnostics, not in subscriber-specific header geometry.
 
 ## Power Presets page
 
 ### Layout
 
-- Left rail: preset list with New, Duplicate, Rename, Delete, and startup-preset marker.
-- Main panel: one row each for Weapon 1, Weapon 2, Weapon 3, Engines, Shields, and Grav
-  Drive.
+- **Profile Identity**: one transient populated selector, rename field, and startup toggle.
+- **Hardware Bindings**: keyboard chord and optional Input Bus button/POV capture.
+- **Profile Actions**: Create/Duplicate and Delete/Revert in compact inline rows.
+- Allocation grid: one row each for Weapon 0, Weapon 1, Weapon 2, Engines, Shields, and Grav
+  Drive, followed by the row's priority Choice when supported.
 - Each row displays the current ship maximum and a contiguous pip strip.
 - Pip colors use both color and a symbol/texture for accessibility:
   - Green / `1`: first tier
@@ -61,13 +66,14 @@ Clicking or keyboard-activating a pip sets the cumulative tier counts for that r
 frontend must keep rows monotonic (`GGGYYRR--`). If a user attempts a priority inversion,
 normalize the intervening pips and show a small explanatory status message.
 
-Provide a reorderable **Within-tier order** list. Explain that it is a deterministic
-round-robin tie breaker only when the reactor cannot finish the current tier; it does not
-allow Yellow to outrank unfilled Green.
+Each row's priority Choice edits the same deterministic tie-break ordering. Explain that the order
+applies only when the reactor cannot finish the current tier; it does not allow Yellow to outrank
+unfilled Green. Pointer or keyboard/controller activation of the focused row must open the same
+bounded Choice popup.
 
 ### Preview
 
-Always show a non-mutating preview for the current live ship:
+The grid carries the non-mutating preview for the current live ship:
 
 - target pips per system;
 - clipped pips because a system is absent or smaller on this ship;
@@ -75,14 +81,12 @@ Always show a non-mutating preview for the current live ship:
 - the first incomplete tier, if any; and
 - a compact `Green complete -> Yellow partial -> Red blocked` explanation.
 
-Buttons:
-
-- **Save Draft** writes only the custom configuration.
-- **Save & Activate** atomically writes, reloads, then invokes the selected preset.
-- **Activate Without Saving** applies the saved version and must not silently use draft
-  values.
-
-Disable activation when no pilot-ready snapshot exists, but keep editing available.
+The host footer's **Apply** writes the custom configuration; **Cancel** restores the opening draft.
+The compact page does not currently publish a manual activation action. Startup, keyboard, and
+Input Bus shortcuts activate saved profiles. Before release, decide explicitly whether the menu
+also needs an activate-saved-profile action; changing the transient selector must never activate a
+profile as a hidden side effect. A missing pilot-ready snapshot disables live execution/preview but
+does not prevent editing.
 
 ## Automation / Cheats page
 

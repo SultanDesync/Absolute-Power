@@ -132,12 +132,21 @@ public:
     ShortcutUpdateResult ClearKeyboardShortcut(std::string_view presetId);
     ShortcutUpdateResult ReplaceKeyboardShortcuts(
         const std::vector<PresetShortcut>& shortcuts);
+    [[nodiscard]] std::optional<AbsolutePower::JoystickShortcut> JoystickShortcut(
+        std::string_view presetId) const;
+    [[nodiscard]] std::vector<AbsolutePower::JoystickShortcut> JoystickShortcuts() const;
+    ShortcutUpdateResult SetJoystickShortcut(std::string_view presetId,
+                                             std::string_view token);
+    ShortcutUpdateResult ClearJoystickShortcut(std::string_view presetId);
+    ShortcutUpdateResult ReplaceJoystickShortcuts(
+        const std::vector<AbsolutePower::JoystickShortcut>& shortcuts);
     BackendResult InvokeCommand(std::string_view commandId);
 
 private:
     PowerRuntime();
     const Preset* FindPreset(std::string_view id) const;
     void ProcessKeyboardShortcuts();
+    void ProcessJoystickShortcuts();
     void ProcessAutomationSettlement(std::chrono::steady_clock::time_point now);
     void SeedKeyboardShortcutEdgesLocked();
 
