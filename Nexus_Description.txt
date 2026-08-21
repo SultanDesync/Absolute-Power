@@ -55,7 +55,7 @@ Click a pip to cycle [font=Courier New]HOLLOW → 1 → 2 → 3 → HOLLOW[/font
 
 [size=4][color=#00ccff][b]3. Apply a complete policy with one input[/b][/color][/size]
 
-Name the profile, optionally make it the startup policy, then bind it to a keyboard chord or physical flight control. Activating that binding applies the selected priorities to the ship you are currently flying; it does not replay a brittle raw pip count from another ship.
+Name the profile, optionally make it the startup policy, then bind it to a single key or a Ctrl/Alt/Shift key combination. If AbsoluteHOTAS is installed, you can instead capture a button or POV input from a joystick, throttle, or button box. Activating that one input applies the selected priorities to the ship you are currently flying; it does not replay a brittle raw pip count from another ship.
 
 [center][img]https://REPLACE-ME.invalid/absolute-power-guide-03-profile-bindings.png[/img][/center]
 
@@ -76,9 +76,9 @@ Create a new preset, duplicate one as a starting point, or delete/hide a profile
 [*][font=Courier New]4[/font] — Stealth[/*]
 [/list]
 
-[b]These shortcuts are active even without a configuration menu.[/b] Change or clear any binding that overlaps your normal controls. Absolute Control can capture replacements, or you can override them in [font=Courier New]AbsolutePower_Custom.ini[/font].
+[b]These are true single-keystroke activations, and Starfield leaves number-row keys 1–4 unused by default while piloting.[/b] The shipped layout therefore provides immediate preset switching without displacing vanilla flight controls.
 
-When AbsoluteHOTAS provides the optional Absolute Input Bus, Power can also capture joystick, throttle, button-box, and POV bindings. HOTAS is not otherwise required.
+Prefer another layout? Absolute Control can record a different single key or a Ctrl/Alt/Shift key combination. When AbsoluteHOTAS is installed and supplies the optional Absolute Input Bus, Power can instead capture a joystick, throttle, button-box, or POV input. HOTAS is not otherwise required.
 
 [line]
 

@@ -78,8 +78,9 @@ Travel=3
 Stealth=4
 ```
 
-These bindings are active even when no configuration frontend is installed. Change or clear any
-shortcut that conflicts with your normal controls before regular play.
+These are true single-keystroke activations and remain active without a configuration frontend.
+Starfield leaves number-row keys `1`–`4` unused by default while piloting, so the shipped layout
+provides immediate preset switching without displacing vanilla flight controls.
 
 Change or clear them in Absolute Control, or override them in `AbsolutePower_Custom.ini`:
 
@@ -90,9 +91,10 @@ Travel=NumpadAdd
 Stealth=None
 ```
 
-Supported names include letters, digits, `F1`–`F24`, navigation keys, numpad keys, and `VKxx`
-hexadecimal virtual-key notation. When AbsoluteHOTAS supplies the Absolute Input Bus, the native
-menu can also capture stable DirectInput button and POV bindings.
+Bindings may be a single key or a combination using Ctrl, Alt, and Shift. Supported names include
+letters, digits, `F1`–`F24`, navigation keys, numpad keys, and `VKxx` hexadecimal virtual-key
+notation. When AbsoluteHOTAS is installed and supplies the Absolute Input Bus, the native menu can
+instead capture a stable joystick, throttle, button-box, or POV input from a flight-control device.
 
 ## Configuration and safe updates
 
