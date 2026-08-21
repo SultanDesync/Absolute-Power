@@ -7,6 +7,9 @@ Absolute Power stores a [i]priority plan[/i] instead of a snapshot. Essential re
 
 For example, a Combat profile can protect Shields and Engines first, add preferred weapon power second, and leave Grav Drive or other discretionary demand until last. One command applies that policy to the ship you are actually flying.
 
+[center][img]https://REPLACE-ME.invalid/absolute-power-priority-overview.png[/img]
+[size=2][color=#9ec4d4]Green first. Yellow after Green. Red last.[/color][/size][/center]
+
 [line]
 
 [center][size=5][color=#ffcc00][b]A universal plan, not a fixed snapshot[/b][/color][/size][/center]
@@ -19,6 +22,9 @@ For example, a Combat profile can protect Shields and Engines first, add preferr
 [*][b]Portable limits:[/b] requests clip safely to each installed subsystem's real maximum, including empty weapon slots.[/*]
 [*][b]Unassigned means unassigned:[/b] a preset can deliberately leave reactor capacity unused for stealth or manual control.[/*]
 [/list]
+
+[center][img]https://REPLACE-ME.invalid/absolute-power-cross-ship-comparison.png[/img]
+[size=2][color=#9ec4d4]One policy, adapted to the reactor, equipment, and limits of the ship you are actually flying.[/color][/size][/center]
 
 [line]
 
@@ -36,6 +42,9 @@ For example, a Combat profile can protect Shields and Engines first, add preferr
 [/list]
 
 [b]Absolute Control is required for the advertised in-game editor, but not for Power's gameplay backend.[/b] Absolute Power owns its presets, validation, bindings, and persistence. Without the shared menu host, the gameplay plugin continues to work through its INI and established shortcuts.
+
+[center][img]https://REPLACE-ME.invalid/absolute-power-native-editor.png[/img]
+[size=2][color=#9ec4d4]Configure profiles, tier requests, tie-break order, and bindings from MOD OPTIONS.[/color][/size][/center]
 
 [line]
 

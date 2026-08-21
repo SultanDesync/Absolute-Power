@@ -29,6 +29,19 @@
 - Controller
 - Quality of Life
 
+## Embedded image placeholders
+
+Replace these reserved `.invalid` URLs in both copies of the Nexus description after the final
+images have been uploaded to a public host:
+
+| Placeholder URL | Intended image |
+| --- | --- |
+| `https://REPLACE-ME.invalid/absolute-power-priority-overview.png` | A concise Green → Yellow → Red allocation overview. |
+| `https://REPLACE-ME.invalid/absolute-power-cross-ship-comparison.png` | The same preset applied to weaker and stronger ships, showing graceful scaling. |
+| `https://REPLACE-ME.invalid/absolute-power-native-editor.png` | The native preset editor; `docs/images/absolute-power-presets.png` is the prepared local source. |
+
+The canonical BBCode is `Nexus_Description.txt`; the release-folder copy should remain identical.
+
 ## Upload notes
 
 Use `Nexus_Description.txt` as the BBCode description and
