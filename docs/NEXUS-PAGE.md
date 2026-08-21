@@ -13,8 +13,10 @@
 
 - Starfield 1.16.244
 - SFSE 0.2.20 or later
-- No Address Library required by Absolute Power
-- Absolute Control optional but recommended
+- No Address Library required by Absolute Power itself
+- Absolute Control — Standalone Menu Host 0.2.0-beta.1 required for the advertised in-game editor;
+  the Power backend retains its INI and shortcut fallback without it
+- Address Library for SFSE Plugins required by the separate Absolute Control host
 
 ## Suggested tags
 

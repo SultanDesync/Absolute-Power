@@ -35,7 +35,7 @@ For example, a Combat profile can protect Shields and Engines first, add preferr
 [*]Fail-closed Starfield runtime gates: an unsupported native operation is disabled instead of guessed.[/*]
 [/list]
 
-[b]Absolute Control is recommended, but optional.[/b] Absolute Power owns its presets, validation, bindings, and persistence. The gameplay plugin continues to work when the shared menu, AbsoluteHOTAS, or any legacy frontend is absent.
+[b]Absolute Control is required for the advertised in-game editor, but not for Power's gameplay backend.[/b] Absolute Power owns its presets, validation, bindings, and persistence. Without the shared menu host, the gameplay plugin continues to work through its INI and established shortcuts.
 
 [line]
 
@@ -59,8 +59,8 @@ When AbsoluteHOTAS provides the optional Absolute Input Bus, Power can also capt
 [list]
 [*]Starfield [b]1.16.244[/b][/*]
 [*][url=https://sfse.silverlock.org/]SFSE[/url] [b]0.2.20 or later[/b][/*]
-[*]No Address Library required by Absolute Power[/*]
-[*][url=https://github.com/SultanDesync/Absolute-Control]Absolute Control[/url] is optional but recommended for the native editor[/*]
+[*]No Address Library required by Absolute Power itself[/*]
+[*][url=https://github.com/SultanDesync/Absolute-Control]Absolute Control — Standalone Menu Host 0.2.0-beta.1[/url] is required for the advertised native editor and currently requires Address Library for SFSE Plugins[/*]
 [/list]
 
 Install normally with MO2 or Vortex, or place [font=Courier New]AbsolutePower.dll[/font], [font=Courier New]AbsolutePower.ini[/font], and the optional Workbench manifest in [font=Courier New]Data\SFSE\Plugins\[/font]. Launch Starfield through SFSE.

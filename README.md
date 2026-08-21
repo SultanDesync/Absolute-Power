@@ -30,8 +30,10 @@ surface yet.
 
 - Starfield `1.16.244`
 - [SFSE](https://sfse.silverlock.org/) `0.2.20` or later
-- Absolute Control is recommended for the native in-game editor, but is not a gameplay dependency.
-- Address Library is **not** required by Absolute Power.
+- [Absolute Control](https://github.com/SultanDesync/Absolute-Control) standalone is required for
+  the advertised native in-game editor, but is not a gameplay dependency.
+- Address Library is **not** required by Absolute Power itself. The separate Absolute Control menu
+  host currently requires Address Library for SFSE Plugins.
 
 Native power application is exact-gated to the supported Starfield runtime. If validation fails,
 Power leaves the affected operation disabled instead of attempting an unsafe fallback.
