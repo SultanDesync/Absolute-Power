@@ -34,11 +34,12 @@
 Replace these reserved `.invalid` URLs in both copies of the Nexus description after the final
 images have been uploaded to a public host:
 
-| Placeholder URL | Intended image |
-| --- | --- |
-| `https://REPLACE-ME.invalid/absolute-power-priority-overview.png` | A concise Green → Yellow → Red allocation overview. |
-| `https://REPLACE-ME.invalid/absolute-power-cross-ship-comparison.png` | The same preset applied to weaker and stronger ships, showing graceful scaling. |
-| `https://REPLACE-ME.invalid/absolute-power-native-editor.png` | The native preset editor; `docs/images/absolute-power-presets.png` is the prepared local source. |
+| Placeholder URL | Local source | Description role |
+| --- | --- | --- |
+| `https://REPLACE-ME.invalid/absolute-power-guide-01-mod-options.png` | `docs/images/absolute-power-guide-01-mod-options.png` | Pause Menu entry and first access. |
+| `https://REPLACE-ME.invalid/absolute-power-guide-02-priority-grid.png` | `docs/images/absolute-power-guide-02-priority-grid.png` | Tier requests and deterministic per-system order. |
+| `https://REPLACE-ME.invalid/absolute-power-guide-03-profile-bindings.png` | `docs/images/absolute-power-guide-03-profile-bindings.png` | Profile identity, startup selection, and keyboard/HOTAS activation. |
+| `https://REPLACE-ME.invalid/absolute-power-guide-04-profile-actions.png` | `docs/images/absolute-power-guide-04-profile-actions.png` | Create, duplicate, hide/delete, and revert actions. |
 
 The canonical BBCode is `Nexus_Description.txt`; the release-folder copy should remain identical.
 

@@ -7,9 +7,6 @@ Absolute Power stores a [i]priority plan[/i] instead of a snapshot. Essential re
 
 For example, a Combat profile can protect Shields and Engines first, add preferred weapon power second, and leave Grav Drive or other discretionary demand until last. One command applies that policy to the ship you are actually flying.
 
-[center][img]https://REPLACE-ME.invalid/absolute-power-priority-overview.png[/img]
-[size=2][color=#9ec4d4]Green first. Yellow after Green. Red last.[/color][/size][/center]
-
 [line]
 
 [center][size=5][color=#ffcc00][b]A universal plan, not a fixed snapshot[/b][/color][/size][/center]
@@ -22,9 +19,6 @@ For example, a Combat profile can protect Shields and Engines first, add preferr
 [*][b]Portable limits:[/b] requests clip safely to each installed subsystem's real maximum, including empty weapon slots.[/*]
 [*][b]Unassigned means unassigned:[/b] a preset can deliberately leave reactor capacity unused for stealth or manual control.[/*]
 [/list]
-
-[center][img]https://REPLACE-ME.invalid/absolute-power-cross-ship-comparison.png[/img]
-[size=2][color=#9ec4d4]One policy, adapted to the reactor, equipment, and limits of the ship you are actually flying.[/color][/size][/center]
 
 [line]
 
@@ -43,8 +37,33 @@ For example, a Combat profile can protect Shields and Engines first, add preferr
 
 [b]Absolute Control is required for the advertised in-game editor, but not for Power's gameplay backend.[/b] Absolute Power owns its presets, validation, bindings, and persistence. Without the shared menu host, the gameplay plugin continues to work through its INI and established shortcuts.
 
-[center][img]https://REPLACE-ME.invalid/absolute-power-native-editor.png[/img]
-[size=2][color=#9ec4d4]Configure profiles, tier requests, tie-break order, and bindings from MOD OPTIONS.[/color][/size][/center]
+[line]
+
+[center][size=5][color=#ffcc00][b]Visual guide[/b][/color][/size][/center]
+
+[size=4][color=#00ccff][b]1. Enter through the Pause Menu[/b][/color][/size]
+
+Absolute Control adds [b]MOD OPTIONS[/b] to the familiar Starfield Pause Menu. Open it, then select [b]Absolute Power[/b] from the installed-module list.
+
+[center][img]https://REPLACE-ME.invalid/absolute-power-guide-01-mod-options.png[/img][/center]
+
+[size=4][color=#00ccff][b]2. Encode intent instead of one ship's snapshot[/b][/color][/size]
+
+Click a pip to cycle [font=Courier New]HOLLOW → 1 → 2 → 3 → HOLLOW[/font]. Green requests are essential, Yellow waits for Green, and Red waits for both. The priority selector on the right provides a deterministic tie-break order when the current reactor cannot complete a tier.
+
+[center][img]https://REPLACE-ME.invalid/absolute-power-guide-02-priority-grid.png[/img][/center]
+
+[size=4][color=#00ccff][b]3. Apply a complete policy with one input[/b][/color][/size]
+
+Name the profile, optionally make it the startup policy, then bind it to a keyboard chord or physical flight control. Activating that binding applies the selected priorities to the ship you are currently flying; it does not replay a brittle raw pip count from another ship.
+
+[center][img]https://REPLACE-ME.invalid/absolute-power-guide-03-profile-bindings.png[/img][/center]
+
+[size=4][color=#00ccff][b]4. Build variants without losing the shipped defaults[/b][/color][/size]
+
+Create a new preset, duplicate one as a starting point, or delete/hide a profile you no longer need. [b]Revert user override[/b] restores the shipped version of an overridden default profile without disturbing unrelated records.
+
+[center][img]https://REPLACE-ME.invalid/absolute-power-guide-04-profile-actions.png[/img][/center]
 
 [line]
 
