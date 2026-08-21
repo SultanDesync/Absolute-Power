@@ -1,8 +1,13 @@
 # Absolute Power v0.2.0-alpha
 
-Absolute Power is an SFSE plugin for priority-based ship-power presets in Starfield. Define how
-reactor power should be distributed, activate a complete preset with one command, and keep the
-same policy across ships with different installed subsystem capacities.
+Conventional power presets reproduce a fixed distribution, but Starfield ships are not equal. A
+layout made for one reactor and loadout may be impossible—or simply wrong—on a ship with less
+power, different weapons, or different subsystem limits.
+
+Absolute Power stores a priority plan instead of a snapshot. Essential requests are funded first;
+preferred and discretionary systems receive power only after every higher-priority request the
+current ship can satisfy has been handled. The same Combat, Travel, or Stealth policy therefore
+scales down gracefully on a weaker ship and continues filling out on a stronger one.
 
 The current standalone release is feature-stable for its supported preset workflow. The optional
 event-driven Automation / Cheats backend remains disabled and is not part of the supported public

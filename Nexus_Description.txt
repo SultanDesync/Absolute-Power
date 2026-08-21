@@ -1,0 +1,96 @@
+[center][size=6][color=#00ccff][b]Absolute Power 0.2.0-alpha[/b][/color][/size]
+[size=4][b][color=#ffaa00]Portable, priority-driven ship-power presets for Starfield.[/color][/b][/size][/center]
+
+[b]Power preset mods already exist—but not all ships are equal.[/b] A fixed distribution made for one reactor and loadout may be impossible, wasteful, or simply wrong on a ship with less power, different weapons, or different subsystem limits.
+
+Absolute Power stores a [i]priority plan[/i] instead of a snapshot. Essential requests are funded first. Preferred and discretionary systems receive power only after every higher-priority request the current ship can satisfy has been handled. The same Combat, Travel, or Stealth plan therefore scales down gracefully on a weaker ship and continues filling out on a stronger one.
+
+For example, a Combat profile can protect Shields and Engines first, add preferred weapon power second, and leave Grav Drive or other discretionary demand until last. One command applies that policy to the ship you are actually flying.
+
+[line]
+
+[center][size=5][color=#ffcc00][b]A universal plan, not a fixed snapshot[/b][/color][/size][/center]
+
+[list]
+[*][b][color=#00ff88]Green — first:[/color][/b] every requested Green pip is considered before any Yellow allocation.[/*]
+[*][b][color=#ffdd33]Yellow — after Green:[/color][/b] preferred capacity is allocated only after the essential tier.[/*]
+[*][b][color=#ff7f8f]Red — last:[/color][/b] discretionary capacity receives the remaining reactor output.[/*]
+[*][b]Deterministic sharing:[/b] when a reactor cannot complete a tier, systems receive pips one at a time in the preset's chosen order.[/*]
+[*][b]Portable limits:[/b] requests clip safely to each installed subsystem's real maximum, including empty weapon slots.[/*]
+[*][b]Unassigned means unassigned:[/b] a preset can deliberately leave reactor capacity unused for stealth or manual control.[/*]
+[/list]
+
+[line]
+
+[center][size=5][color=#00ccff][b]Included workflow[/b][/color][/size][/center]
+
+[list]
+[*]Four editable presets: [b]Balanced, Combat, Travel, and Stealth[/b].[/*]
+[*]Apply a complete preset with one keyboard or physical flight-control binding.[/*]
+[*]Native [b]MOD OPTIONS[/b] editor through Absolute Control.[/*]
+[*]Direct 12-pip allocation grid with live capacity, preview markers, quick-step controls, and per-system tie-break order.[/*]
+[*]Profile selection, renaming, startup behavior, keyboard capture, optional HOTAS/POV capture, Apply/Cancel, and diagnostics.[/*]
+[*]Headless operation through the INI and shipped number-row shortcuts when no menu host is installed.[/*]
+[*]Importable preset packs and a separate user-owned custom configuration layer.[/*]
+[*]Fail-closed Starfield runtime gates: an unsupported native operation is disabled instead of guessed.[/*]
+[/list]
+
+[b]Absolute Control is recommended, but optional.[/b] Absolute Power owns its presets, validation, bindings, and persistence. The gameplay plugin continues to work when the shared menu, AbsoluteHOTAS, or any legacy frontend is absent.
+
+[line]
+
+[center][size=5][color=#ffaa00][b]Default shortcuts[/b][/color][/size][/center]
+
+[list]
+[*][font=Courier New]1[/font] — Balanced[/*]
+[*][font=Courier New]2[/font] — Combat[/*]
+[*][font=Courier New]3[/font] — Travel[/*]
+[*][font=Courier New]4[/font] — Stealth[/*]
+[/list]
+
+[b]These shortcuts are active even without a configuration menu.[/b] Change or clear any binding that overlaps your normal controls. Absolute Control can capture replacements, or you can override them in [font=Courier New]AbsolutePower_Custom.ini[/font].
+
+When AbsoluteHOTAS provides the optional Absolute Input Bus, Power can also capture joystick, throttle, button-box, and POV bindings. HOTAS is not otherwise required.
+
+[line]
+
+[center][size=5][color=#00ccff][b]Requirements and installation[/b][/color][/size][/center]
+
+[list]
+[*]Starfield [b]1.16.244[/b][/*]
+[*][url=https://sfse.silverlock.org/]SFSE[/url] [b]0.2.20 or later[/b][/*]
+[*]No Address Library required by Absolute Power[/*]
+[*][url=https://github.com/SultanDesync/Absolute-Control]Absolute Control[/url] is optional but recommended for the native editor[/*]
+[/list]
+
+Install normally with MO2 or Vortex, or place [font=Courier New]AbsolutePower.dll[/font], [font=Courier New]AbsolutePower.ini[/font], and the optional Workbench manifest in [font=Courier New]Data\SFSE\Plugins\[/font]. Launch Starfield through SFSE.
+
+With Absolute Control installed, open the Pause Menu, select [color=#ffaa00][b]MOD OPTIONS[/b][/color], and choose [b]Absolute Power[/b].
+
+[line]
+
+[center][size=5][color=#ffcc00][b]Configuration and updates[/b][/color][/size][/center]
+
+Configuration loads in this order:
+
+[list=1]
+[*][font=Courier New]AbsolutePower.ini[/font] — shipped defaults; updates may replace it.[/*]
+[*][font=Courier New]AbsolutePower_Imports\*.ini[/font] — filename-sorted preset packs.[/*]
+[*][font=Courier New]AbsolutePower_Custom.ini[/font] — user-owned menu changes and overrides.[/*]
+[/list]
+
+Do not place personal changes in the shipped default INI. Back up the custom file before updating. Separate preset-pack mods can add or override profiles without replacing Power or another user's settings.
+
+[line]
+
+[center][size=5][color=#ffaa00][b]Current release scope[/b][/color][/size][/center]
+
+The priority-preset workflow is the supported feature of this release. The event-driven [b]Automation / Cheats[/b] backend remains disabled and is not release-qualified. Absolute Control shows a Coming Soon explanation and an emergency Disable All action instead of exposing the unfinished rule editor. The current example rule schema is not a public API.
+
+Native power application is exact-gated to Starfield 1.16.244. If validation fails, Power leaves the operation disabled rather than attempting an unsafe fallback.
+
+[line]
+
+[center][url=https://github.com/SultanDesync/Absolute-Power][color=#00ff88][b]Complete Guide and Source[/b][/color][/url]
+
+[url=https://www.nexusmods.com/starfield/mods/16668]AbsoluteHOTAS[/url] · [url=https://www.nexusmods.com/starfield/mods/17872]Absolute Head Tracking[/url] · [url=https://www.nexusmods.com/starfield/mods/17460]AbsoluteZero[/url][/center]
