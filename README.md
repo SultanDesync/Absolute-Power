@@ -1,41 +1,67 @@
-# Absolute Power
+# Absolute Power v0.2.0-alpha
 
-Absolute Power is a Starfield SFSE plugin for priority-based ship-power presets and
-optional event-driven reallocation. It is part of the Absolute flight-control suite.
+Absolute Power is an SFSE plugin for priority-based ship-power presets in Starfield. Define how
+reactor power should be distributed, activate a complete preset with one command, and keep the
+same policy across ships with different installed subsystem capacities.
 
-## Absolute suite
+The current standalone release is feature-stable for its supported preset workflow. The optional
+event-driven Automation / Cheats backend remains disabled and is not part of the supported public
+surface yet.
 
-- **Absolute Control** — the optional native PauseMenu configuration host. Power registers
-  provider-owned Presets, an Automation / Cheats **Coming Soon** safety preview, and Diagnostics
-  when it is present.
-- [Absolute Workbench](https://github.com/SultanDesync/Absolute-Workbench) — the earlier ImGui
-  frontend and UX prototype; it is not the production menu host.
-- [AbsoluteHOTAS](https://github.com/SultanDesync/AbsoluteHOTAS) — HOTAS/HOSAS Power tab
-  and device-button/POV command host.
-- [Absolute Head Tracking](https://github.com/SultanDesync/Absolute-Head-Tracking) —
-  standalone OpenTrack cockpit camera control.
-- [AbsoluteZero Ship Control](https://github.com/SultanDesync/AbsoluteZero-Ship-Control) —
-  lightweight mouse-alignment assistance.
+## Features
 
-Absolute Power is a standalone runtime. It loads and executes manually authored or
-installed configuration without a presentation mod. Absolute Control adds the primary native
-keyboard/mouse editor; AbsoluteHOTAS adds the HOTAS-native interface and device mappings.
-The local AP build owns keyboard shortcut persistence and edge execution; Control only
-captures and edits those records through the Power API. Established bindings therefore
-remain usable without the shared UI. When both frontends are installed they share the same
-Power runtime, presets, and exported commands; UI arbitration does not disable the backend.
+- Four shipped profiles: **Balanced**, **Combat**, **Travel**, and **Stealth**.
+- Three priority tiers per ship system: Green, Yellow, and Red.
+- Deterministic allocation with strict tier barriers and round-robin tie breaking.
+- Portable presets that clip safely to the current ship's installed subsystem limits.
+- Native number-row shortcuts for headless operation without a configuration frontend.
+- Optional keyboard or HOTAS/POV preset bindings owned and persisted by Power.
+- A full native **Absolute Control** menu with profile selection, startup behavior, bindings,
+  direct 12-pip grid editing, per-system tie-break priorities, Apply/Cancel, and diagnostics.
+- Fail-optional integration: presets and established shortcuts continue to work when Absolute
+  Control, AbsoluteHOTAS, or any legacy frontend is absent.
 
-The current Control surface is the compact reference for compound subscriber UI: semantic section
-headers, inline profile actions, keyboard and Input Bus bindings, and a six-row 12-pip allocation
-grid with 1/2/3 tier glyphs, direct four-state pip cycling, quick-step buttons, and explicitly
-associated per-row priority Choices. Every edit remains in Power's ordinary Apply/Cancel draft.
-Older hosts receive bounded fallbacks rather than inferred layout.
+## Requirements
 
-Configuration precedence is `AbsolutePower.ini`, then filename-sorted
-`AbsolutePower_Imports\*.ini` preset packs, then `AbsolutePower_Custom.ini`. A pack can
-therefore be installed as its own mod without replacing Power or the user's settings.
+- Starfield `1.16.244`
+- [SFSE](https://sfse.silverlock.org/) `0.2.20` or later
+- Absolute Control is recommended for the native in-game editor, but is not a gameplay dependency.
+- Address Library is **not** required by Absolute Power.
 
-Absolute Power ships headless-friendly number-row bindings for its four default profiles:
+Native power application is exact-gated to the supported Starfield runtime. If validation fails,
+Power leaves the affected operation disabled instead of attempting an unsafe fallback.
+
+## Installation
+
+Install the archive with MO2 or Vortex, or place these files manually:
+
+```text
+Data\SFSE\Plugins\AbsolutePower.dll
+Data\SFSE\Plugins\AbsolutePower.ini
+```
+
+Launch Starfield through SFSE. With Absolute Control installed, open the Pause Menu, select
+**MOD OPTIONS**, and choose **Absolute Power**.
+
+## Priority presets
+
+Every ship system can request pips in three tiers:
+
+- **Green** — allocated first.
+- **Yellow** — allocated after all requested Green pips.
+- **Red** — allocated after all requested Green and Yellow pips.
+
+When a reactor cannot complete a tier, the allocator shares that tier one pip at a time in the
+preset's configured system order. Uncolored capacity remains unassigned. This makes one preset
+usable across ships without assuming identical reactors or equipment.
+
+The shipped **Stealth** profile requests one Green pip for Engines and Shields and leaves Weapons
+and Grav Drive unpowered. It provides minimal mobility and protection while leaving most reactor
+power unassigned.
+
+## Default controls
+
+Power owns four headless-friendly number-row shortcuts:
 
 ```ini
 [KeyboardPresetBindings]
@@ -45,85 +71,68 @@ Travel=3
 Stealth=4
 ```
 
-Manual overrides use the user-owned custom file:
+These bindings are active even when no configuration frontend is installed. Change or clear any
+shortcut that conflicts with your normal controls before regular play.
+
+Change or clear them in Absolute Control, or override them in `AbsolutePower_Custom.ini`:
 
 ```ini
 [KeyboardPresetBindings]
 Balanced=Ctrl+Shift+F8
 Travel=NumpadAdd
+Stealth=None
 ```
 
-Supported names include letters, digits, `F1`–`F24`, common navigation keys, numpad keys,
-and `VKxx` hexadecimal virtual-key notation. `None` masks a lower-precedence binding.
+Supported names include letters, digits, `F1`–`F24`, navigation keys, numpad keys, and `VKxx`
+hexadecimal virtual-key notation. When AbsoluteHOTAS supplies the Absolute Input Bus, the native
+menu can also capture stable DirectInput button and POV bindings.
 
-## Bootstrap status
+## Configuration and safe updates
 
-This repository is a buildable `0.2.0-alpha` foundation. It currently includes:
+Configuration precedence is:
 
-- a deterministic Green -> Yellow -> Red pip allocator;
-- strict tier barriers and round-robin tie breaking;
-- releases-first native change planning;
-- opt-in weapon, incoming-damage, throttle, and manual automation policy;
-- shipped/default plus user-overlay configuration conventions;
-- a C-compatible API for Absolute Workbench and AbsoluteHOTAS;
-- a fail-optional Absolute Control provider adapter using the native host ABI;
-- a fail-optional Absolute Input Bus client for Power-owned joystick/throttle button and POV
-  preset shortcuts;
-- load-order-independent discovery and ABI validation of the optional Workbench and
-  AbsoluteHOTAS interfaces;
-- exact Starfield 1.16.244.0 native power-setter signature gates; and
-- standalone tests for allocation policy, automation timing, ABI shape, positional grid
-  normalization, and shortcut capability/failure boundaries.
+1. `AbsolutePower.ini` — shipped defaults; replaced by updates.
+2. `AbsolutePower_Imports\*.ini` — filename-sorted preset packs.
+3. `AbsolutePower_Custom.ini` — user-owned settings and menu changes.
 
-The live equipment-component lookup and shared-reference lifetime sequence recovered by
-the research harness is promoted intact. Preset requests are queued from either input
-host—or from configured standalone startup behavior—and executed by a
-deduplicated one-shot SFSE game task. Every lookup, layout, identity, setter, and
-final-release sequence remains exact-gated to Starfield 1.16.244.0. Promotion closes the
-implementation gap; integrated in-game qualification remains a release gate.
+Do not place personal changes in the shipped default INI. Updates and preset packs must not replace
+`AbsolutePower_Custom.ini`.
 
-The first automation research slice exists, but it is not release-qualified. Its successful
-Weapon 1 path exposed unresolved cross-weapon identity, demand-settlement, and user-policy issues.
-The early Control surface therefore withholds the rule editor and exposes only truthful status plus
-an emergency Disable All action. Headless defaults remain disabled while the feature is redesigned
-around On-Demand Power and possible Auto Combat Mode.
-
-## Priority presets
-
-Each installed ship system receives a number of pips in three tiers:
-
-- **Green** — allocate first.
-- **Yellow** — allocate only after every requested Green pip is populated.
-- **Red** — allocate only after every requested Green and Yellow pip is populated.
-
-When a reactor cannot complete a tier, the allocator shares that tier one pip at a time
-in the preset's configured system order and stops. Uncolored capacity remains available.
-Preset counts are clipped to the current ship's installed subsystem maximum, so one
-preset can travel between ships and tolerate an empty weapon slot.
-
-The shipped **Stealth** profile requests one Green pip for Engines and Shields and zero
-for Weapons and Grav Drive. It leaves nearly all reactor power unassigned while retaining
-minimal mobility and protection, and remains editable through the headless INI or Control.
+Preset packs can be installed as separate mods by placing sparse INI overlays in
+`Data\SFSE\Plugins\AbsolutePower_Imports\`. They can add or override presets without replacing the
+plugin or the user's custom file.
 
 ## Automation / Cheats
 
-The experimental backend can reserve emergency pips before the Green tier, but its general rule
-surface is not part of the early supported release. The stable page ID remains registered as
-**Automation / Cheats (Coming Soon)** with a read-only readiness explanation and an immediate
-Disable All action. Do not treat the current INI rule schema as a frozen SDK contract.
+The repository contains an experimental event-driven backend, but it is not release-qualified.
+Cross-weapon identity, demand settlement, and player policy still require redesign. Automation is
+disabled by default, and Absolute Control intentionally presents a **Coming Soon** explanation plus
+an emergency **Disable All** action instead of exposing the unfinished rule editor.
 
-## Build
+The current example rule schema is not a frozen public API.
+
+## Absolute suite
+
+- [Absolute Control](https://github.com/SultanDesync/Absolute-Control) — shared native PauseMenu
+  configuration host and the recommended Power editor.
+- [AbsoluteHOTAS](https://www.nexusmods.com/starfield/mods/16668) — HOTAS/HOSAS flight control and
+  the optional Absolute Input Bus provider.
+- [Absolute Head Tracking](https://www.nexusmods.com/starfield/mods/17872) — OpenTrack-compatible
+  rotational cockpit tracking.
+- [AbsoluteZero](https://www.nexusmods.com/starfield/mods/17460) — mouse alignment and locked-reticule
+  steering.
+## Building
+
+Install xmake, then run:
 
 ```powershell
-xmake
-xmake test
+xmake f -m releasedbg
+xmake build AbsolutePower
 ```
 
-The build stages the DLL, default INI, and legacy Workbench manifest under
-`contrib/PluginRelease/Data/SFSE/Plugins`. Set `xmake f --deploydir=...` or the
-`ABSOLUTE_POWER_DEPLOY_DIR` environment variable for local deployment.
+The release build stages an MO2-shaped layout under
+`contrib/PluginRelease/Data/SFSE/Plugins`.
 
-See [Architecture](docs/ARCHITECTURE.md), [research provenance](docs/RESEARCH-PROVENANCE.md),
-[suite integration](docs/SUITE-INTEGRATION.md), the
-[Absolute Control integration checkpoint](docs/CONTROL-PANEL-INTEGRATION.md), and the
-[Power frontend UX handoff](docs/WORKBENCH-HANDOFF.md).
+Technical documentation is available in [Architecture](docs/ARCHITECTURE.md),
+[Suite Integration](docs/SUITE-INTEGRATION.md), and
+[Absolute Control Integration](docs/CONTROL-PANEL-INTEGRATION.md).
