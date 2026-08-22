@@ -76,6 +76,40 @@ void ReleasesArePlannedBeforeAssignments() {
     assert(changes[1].system == SystemId::Shield);
 }
 
+void CrewBonusPolicyIsExplicit() {
+    Snapshot snapshot{};
+    snapshot.pilotReady = true;
+    snapshot.totalPower = 5; // Four reactor pips plus one always-on crew pip.
+    snapshot.available = 4;
+    snapshot.systems[ToIndex(SystemId::Engine)] = {true, 1, 4, 1};
+    snapshot.systems[ToIndex(SystemId::Shield)] = {true, 0, 4};
+
+    Preset preset{.id = "Crew", .displayName = "Crew"};
+    preset.tieBreakOrder = {SystemId::Shield, SystemId::Engine,
+                            SystemId::Weapon0, SystemId::Weapon1,
+                            SystemId::Weapon2, SystemId::GravDrive};
+    preset.systems[ToIndex(SystemId::Engine)].green = 2;
+    preset.systems[ToIndex(SystemId::Shield)].green = 2;
+
+    const auto additive = PowerAllocator::Allocate(
+        snapshot, preset, {}, CrewBonusMode::Additive);
+    assert(additive.target[ToIndex(SystemId::Engine)] == 3);
+    assert(additive.target[ToIndex(SystemId::Shield)] == 2);
+    assert(additive.unassigned == 0);
+
+    const auto counted = PowerAllocator::Allocate(
+        snapshot, preset, {}, CrewBonusMode::CountTowardPreset);
+    assert(counted.target[ToIndex(SystemId::Engine)] == 2);
+    assert(counted.target[ToIndex(SystemId::Shield)] == 2);
+    assert(counted.unassigned == 1);
+
+    preset.systems = {};
+    const auto floor = PowerAllocator::Allocate(
+        snapshot, preset, {}, CrewBonusMode::CountTowardPreset);
+    assert(floor.target[ToIndex(SystemId::Engine)] == 1);
+    assert(floor.unassigned == 4);
+}
+
 } // namespace
 
 int main() {
@@ -83,5 +117,6 @@ int main() {
     AutomationDemandsPrecedeGreen();
     MissingSystemsAreClipped();
     ReleasesArePlannedBeforeAssignments();
+    CrewBonusPolicyIsExplicit();
     return 0;
 }

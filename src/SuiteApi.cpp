@@ -215,7 +215,14 @@ Result __cdecl PreviewPreset(const AbsolutePowerApi::PresetV1* input,
         AbsolutePower::Snapshot snapshot{};
         const auto capture = PowerRuntime::Get().Capture(snapshot);
         if (capture != BackendResult::Ok) return MapBackend(capture);
-        const auto allocation = AbsolutePower::PowerAllocator::Allocate(snapshot, preset);
+        const auto configuration = PowerRuntime::Get().ConfigurationSnapshot();
+        const bool countCrewBonus =
+            configuration.data.crewBonusCountsTowardPreset;
+        const auto allocation = AbsolutePower::PowerAllocator::Allocate(
+            snapshot, preset, {},
+            countCrewBonus
+                ? AbsolutePower::CrewBonusMode::CountTowardPreset
+                : AbsolutePower::CrewBonusMode::Additive);
         if (allocation.status != AbsolutePower::AllocationStatus::Ok) {
             return Result::InvalidArgument;
         }
@@ -230,8 +237,11 @@ Result __cdecl PreviewPreset(const AbsolutePowerApi::PresetV1* input,
             const auto maximum = snapshot.systems[index].present
                                      ? static_cast<std::uint32_t>(snapshot.systems[index].maximum)
                                      : 0u;
+            const auto capacity = countCrewBonus
+                                      ? maximum
+                                      : maximum - snapshot.systems[index].bonus;
             output->clipped[index] = static_cast<std::uint16_t>(std::min<std::uint32_t>(
-                requested > maximum ? requested - maximum : 0u,
+                requested > capacity ? requested - capacity : 0u,
                 std::numeric_limits<std::uint16_t>::max()));
         }
         for (std::size_t tier = 0; tier < 3; ++tier) {
@@ -244,7 +254,9 @@ Result __cdecl PreviewPreset(const AbsolutePowerApi::PresetV1* input,
                 const auto maximum = snapshot.systems[index].present
                                          ? snapshot.systems[index].maximum
                                          : 0;
-                const auto desired = std::min<std::uint32_t>(requested, maximum);
+                const auto desired = std::min<std::uint32_t>(
+                    requested + (countCrewBonus ? 0u : snapshot.systems[index].bonus),
+                    maximum);
                 complete &= allocation.target[index] >= desired;
             }
             if (!complete) {

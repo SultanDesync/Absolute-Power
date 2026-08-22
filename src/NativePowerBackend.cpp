@@ -35,13 +35,16 @@ constexpr std::uintptr_t kSharedReleaseRva = 0x24047A0;
 constexpr std::array<std::uint8_t, 10> kSharedReleaseGateBytes{
     0x48, 0x89, 0x5C, 0x24, 0x18, 0x48, 0x89, 0x7C, 0x24, 0x20};
 
-constexpr std::uintptr_t kShieldIdentityGateRva = 0x1F2FAC4;
-constexpr std::array<std::uint8_t, 7> kShieldIdentityGateBytes{
-    0x48, 0x8B, 0x15, 0xDD, 0x0E, 0xF7, 0x03};
-constexpr std::uintptr_t kEngineIdentityGateRva = 0x1F2FA82;
+constexpr std::uintptr_t kEngineIdentityGateRva =
+    ResearchLayout::IdentityGateRva(SystemId::Engine);
 constexpr std::array<std::uint8_t, 7> kEngineIdentityGateBytes{
+    0x48, 0x8B, 0x15, 0xDD, 0x0E, 0xF7, 0x03};
+constexpr std::uintptr_t kShieldIdentityGateRva =
+    ResearchLayout::IdentityGateRva(SystemId::Shield);
+constexpr std::array<std::uint8_t, 7> kShieldIdentityGateBytes{
     0x48, 0x8B, 0x15, 0x97, 0x13, 0xF7, 0x03};
-constexpr std::uintptr_t kGravIdentityGateRva = 0x1F2FA40;
+constexpr std::uintptr_t kGravIdentityGateRva =
+    ResearchLayout::IdentityGateRva(SystemId::GravDrive);
 constexpr std::array<std::uint8_t, 7> kGravIdentityGateBytes{
     0x48, 0x8B, 0x15, 0xE1, 0x14, 0xF7, 0x03};
 
@@ -55,6 +58,9 @@ constexpr std::array<std::uint8_t, 10> kPowerSetterGateBytes{
 constexpr std::uintptr_t kPowerSetterFieldGateRva = 0x21573B8;
 constexpr std::array<std::uint8_t, 10> kPowerSetterFieldGateBytes{
     0x44, 0x8B, 0x7A, 0x64, 0x41, 0x8B, 0xF8, 0x41, 0x2B, 0xFF};
+constexpr std::uintptr_t kEffectivePowerRva = ResearchLayout::EffectivePowerRva;
+constexpr std::array<std::uint8_t, 10> kEffectivePowerGateBytes{
+    0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20};
 
 struct NativeSharedReference {
     std::uintptr_t object{};
@@ -69,6 +75,7 @@ struct NativePart {
     std::uint32_t weaponIndex{};
     std::uint32_t maximum{};
     std::uint32_t current{};
+    std::uint32_t bonus{};
 };
 
 struct NativeEquipment {
@@ -149,7 +156,8 @@ bool AllRuntimeGatesMatch(std::uintptr_t module) {
            BytesMatch(module, kGravIdentityGateRva, kGravIdentityGateBytes) &&
            BytesMatch(module, kNativeSetterCallGateRva, kNativeSetterCallGateBytes) &&
            BytesMatch(module, kPowerSetterRva, kPowerSetterGateBytes) &&
-           BytesMatch(module, kPowerSetterFieldGateRva, kPowerSetterFieldGateBytes);
+           BytesMatch(module, kPowerSetterFieldGateRva, kPowerSetterFieldGateBytes) &&
+           BytesMatch(module, kEffectivePowerRva, kEffectivePowerGateBytes);
 }
 
 bool ReleaseReference(std::uintptr_t module, NativeSharedReference& reference) {
@@ -297,6 +305,14 @@ BackendResult LookupEquipment(std::uintptr_t module, NativeEquipment& equipment)
                     sizeof(part.maximum));
         std::memcpy(&part.current, partBytes.data() + ResearchLayout::PartCurrentPowerOffset,
                     sizeof(part.current));
+        using EffectivePower = std::uint32_t (*)(void*);
+        const auto effective = reinterpret_cast<EffectivePower>(
+            module + kEffectivePowerRva)(reinterpret_cast<void*>(partAddress));
+        if (effective < part.current || effective > part.maximum) {
+            return ReleaseAndReturn(
+                module, equipment, BackendResult::SnapshotSeamUnavailable);
+        }
+        part.bonus = effective - part.current;
         if (identity == shieldIdentity) {
             part.kind = PartKind::Shield;
         } else if (identity == engineIdentity) {
@@ -314,8 +330,7 @@ BackendResult LookupEquipment(std::uintptr_t module, NativeEquipment& equipment)
 SystemId ToSystem(const NativePart& part) {
     switch (part.kind) {
     case PartKind::Weapon:
-        if (part.weaponIndex <= 2) return static_cast<SystemId>(part.weaponIndex);
-        break;
+        return ResearchLayout::WeaponSystemFromPartOrder(part.weaponIndex);
     case PartKind::Engine: return SystemId::Engine;
     case PartKind::Shield: return SystemId::Shield;
     case PartKind::GravDrive: return SystemId::GravDrive;
@@ -332,7 +347,7 @@ bool NativePowerBackend::Initialize() {
     RuntimePaths::Log(
         "NativePower",
         setterSignaturesReady_
-            ? "Starfield 1.16.244.0 equipment lookup, ownership release, layout, identity, and absolute setter gates validated."
+            ? "Starfield 1.16.244.0 equipment lookup, ownership release, layout, identity, effective-power getter, and absolute setter gates validated."
             : "Native Power exact gates did not match; runtime operations remain fail-closed.",
         !setterSignaturesReady_);
     return setterSignaturesReady_;
@@ -368,8 +383,9 @@ BackendResult NativePowerBackend::Capture(Snapshot& snapshot) {
         if (state.present) continue;
         state.present = true;
         state.maximum = static_cast<std::uint16_t>(part.maximum);
-        state.current = static_cast<std::uint16_t>(part.current);
-        total += part.current;
+        state.current = static_cast<std::uint16_t>(part.current + part.bonus);
+        state.bonus = static_cast<std::uint16_t>(part.bonus);
+        total += part.current + part.bonus;
     }
     snapshot.totalPower = static_cast<std::uint16_t>(
         std::min<std::uint32_t>(total, std::numeric_limits<std::uint16_t>::max()));
@@ -402,20 +418,22 @@ BackendResult NativePowerBackend::SetPower(SystemId system, std::uint16_t target
     if (targetPips > targetPart->maximum) {
         return ReleaseAndReturn(module_, equipment, BackendResult::InvalidRequest);
     }
-    if (targetPips == targetPart->current) {
+    const auto baseTarget = ResearchLayout::BaseTargetFromEffective(
+        targetPips, targetPart->bonus);
+    if (baseTarget == targetPart->current) {
         return ReleaseAndReturn(module_, equipment, BackendResult::Ok);
     }
 
     using PowerSetter = bool (*)(void*, void*, std::uint32_t, std::uint8_t);
     const bool accepted = reinterpret_cast<PowerSetter>(module_ + kPowerSetterRva)(
         reinterpret_cast<void*>(equipment.reference.object),
-        reinterpret_cast<void*>(targetPart->address), targetPips,
+        reinterpret_cast<void*>(targetPart->address), baseTarget,
         static_cast<std::uint8_t>(ResearchLayout::WorkbenchReason));
     std::uint32_t observed{};
     const bool observedTarget =
         SafeCopy(&observed, targetPart->address + ResearchLayout::PartCurrentPowerOffset,
                  sizeof(observed)) &&
-        observed == targetPips;
+        observed == baseTarget;
     return ReleaseAndReturn(module_, equipment,
                             accepted && observedTarget ? BackendResult::Ok
                                                        : BackendResult::SetterRejected);

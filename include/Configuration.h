@@ -18,6 +18,7 @@ namespace AbsolutePower {
 struct ConfigurationData {
     bool enableLog{true};
     bool automationEnabled{};
+    bool crewBonusCountsTowardPreset{};
     std::string startupPreset{"Balanced"};
     std::vector<Preset> presets;
     std::vector<AutomationRule> rules;

@@ -95,11 +95,12 @@ winner, and displacement telemetry remain future schema/backend work.
 - In that run Power's exact-gated executor acquired a fresh native ship snapshot, settled the
   startup preset through 22 one-pip/next-frame-confirmed steps, and reported convergence. The menu
   then closed normally, Starfield stayed responsive, exited normally, and produced no new dump.
-- A follow-up real-menu binding regression found that the Mod Organizer `overwrite` target accepted
-  a verified same-directory move but rejected `ReplaceFileW`. Power now tries the metadata-preserving
-  replace first and falls back to the same write-through `MoveFileExW` atomic replacement already
-  used for a new overlay. The direct headless/legacy shortcut and automation writers use the same
-  fallback, so this is not a Control-only persistence exception. Run
+- Follow-up real-menu regressions found that the Mod Organizer `overwrite` target accepts a
+  verified same-directory write-through `MoveFileExW` replacement, while `ReplaceFileW` may either
+  reject the operation or falsely report success before the virtual path exposes the new file.
+  Power therefore uses the validated move replacement directly for configuration transactions.
+  The direct headless/legacy shortcut and automation writers retain equivalent atomic replacement
+  behavior, so this is not a Control-only persistence exception. Run
   `ap-native-smoke-20260815-081600`, using Power SHA256
   `8E23F0BF504BE6483490059B7AC666AC4B538224721D177E86EF926CEA6AB829`, captured `W`, accepted Apply,
   committed configuration generation 1 -> 2, read back `Balanced=W`, exited normally, and produced

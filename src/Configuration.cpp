@@ -335,6 +335,11 @@ void ApplyFile(ConfigurationData& data, const std::filesystem::path& path,
         data.enableLog = ParseBool(*value, data.enableLog);
     if (const auto value = ReadValue(path, L"General", L"bAutomationEnabled"))
         data.automationEnabled = ParseBool(*value, data.automationEnabled);
+    if (const auto value = ReadValue(
+            path, L"General", L"bCrewBonusCountsTowardPreset")) {
+        data.crewBonusCountsTowardPreset = ParseBool(
+            *value, data.crewBonusCountsTowardPreset);
+    }
     if (const auto value = ReadValue(path, L"General", L"sStartupPreset")) {
         const auto normalized = Lower(*value);
         if (normalized == "none" || normalized == "disabled" || normalized.empty()) {
@@ -451,11 +456,81 @@ bool SameConfiguration(const ConfigurationData& left,
     std::ranges::sort(rightJoyShortcuts, {}, &JoystickShortcut::presetId);
     return left.enableLog == right.enableLog &&
            left.automationEnabled == right.automationEnabled &&
+           left.crewBonusCountsTowardPreset ==
+               right.crewBonusCountsTowardPreset &&
            left.startupPreset == right.startupPreset &&
            SameRecordSet(left.presets, right.presets, SamePreset) &&
            SameRecordSet(left.rules, right.rules, SameRule) &&
            leftShortcuts == rightShortcuts &&
            leftJoyShortcuts == rightJoyShortcuts;
+}
+
+std::string DescribeConfigurationDifference(const ConfigurationData& expected,
+                                            const ConfigurationData& actual) {
+    if (expected.enableLog != actual.enableLog) {
+        return std::format("General.bEnableLog expected {} but reloaded {}",
+                           expected.enableLog, actual.enableLog);
+    }
+    if (expected.automationEnabled != actual.automationEnabled) {
+        return std::format("General.bAutomationEnabled expected {} but reloaded {}",
+                           expected.automationEnabled, actual.automationEnabled);
+    }
+    if (expected.crewBonusCountsTowardPreset !=
+        actual.crewBonusCountsTowardPreset) {
+        return std::format(
+            "General.bCrewBonusCountsTowardPreset expected {} but reloaded {}",
+            expected.crewBonusCountsTowardPreset,
+            actual.crewBonusCountsTowardPreset);
+    }
+    if (expected.startupPreset != actual.startupPreset) {
+        return std::format("General.sStartupPreset expected '{}' but reloaded '{}'",
+                           expected.startupPreset, actual.startupPreset);
+    }
+    if (expected.presets.size() != actual.presets.size()) {
+        return std::format("preset count expected {} but reloaded {}",
+                           expected.presets.size(), actual.presets.size());
+    }
+    for (const auto& preset : expected.presets) {
+        const auto* reloaded = FindRecord(actual.presets, preset.id);
+        if (!reloaded) return std::format("preset '{}' was not reloaded", preset.id);
+        if (preset.displayName != reloaded->displayName) {
+            return std::format("preset '{}'.Name expected '{}' but reloaded '{}'",
+                               preset.id, preset.displayName,
+                               reloaded->displayName);
+        }
+        if (preset.tieBreakOrder != reloaded->tieBreakOrder) {
+            return std::format("preset '{}'.Order differs after reload", preset.id);
+        }
+        for (const auto system : kCockpitOrder) {
+            const auto index = ToIndex(system);
+            const auto& wanted = preset.systems[index];
+            const auto& found = reloaded->systems[index];
+            if (!SamePlan(wanted, found)) {
+                return std::format(
+                    "preset '{}'.{} expected {},{},{} but reloaded {},{},{}",
+                    preset.id, SystemKey(system), wanted.green, wanted.yellow,
+                    wanted.red, found.green, found.yellow, found.red);
+            }
+        }
+    }
+    if (!SameRecordSet(expected.rules, actual.rules, SameRule)) {
+        return "automation rule set differs after reload";
+    }
+    auto expectedKeyboard = expected.keyboardShortcuts;
+    auto actualKeyboard = actual.keyboardShortcuts;
+    std::ranges::sort(expectedKeyboard, {}, &PresetShortcut::presetId);
+    std::ranges::sort(actualKeyboard, {}, &PresetShortcut::presetId);
+    if (expectedKeyboard != actualKeyboard) {
+        return "keyboard shortcut set differs after reload";
+    }
+    auto expectedJoystick = expected.joystickShortcuts;
+    auto actualJoystick = actual.joystickShortcuts;
+    std::ranges::sort(expectedJoystick, {}, &JoystickShortcut::presetId);
+    std::ranges::sort(actualJoystick, {}, &JoystickShortcut::presetId);
+    if (expectedJoystick != actualJoystick) {
+        return "joystick shortcut set differs after reload";
+    }
+    return "no field-level difference was identified";
 }
 
 bool ValidateDraft(const ConfigurationData& data, std::string& detail) {
@@ -900,6 +975,13 @@ SaveConfigurationReport Save(const std::filesystem::path& defaultsPath,
         desired.automationEnabled == inherited.automationEnabled
             ? std::optional<std::string>{}
             : std::optional(std::string(desired.automationEnabled ? "true" : "false")));
+    wrote = wrote && WriteValue(
+        temporary, "General", "bCrewBonusCountsTowardPreset",
+        desired.crewBonusCountsTowardPreset ==
+                inherited.crewBonusCountsTowardPreset
+            ? std::optional<std::string>{}
+            : std::optional(std::string(
+                  desired.crewBonusCountsTowardPreset ? "true" : "false")));
 
     std::set<std::string> presetIds;
     for (const auto& preset : inherited.presets) presetIds.insert(Lower(preset.id));
@@ -958,47 +1040,44 @@ SaveConfigurationReport Save(const std::filesystem::path& defaultsPath,
     if (!SameConfiguration(candidate.effective, desired)) {
         std::filesystem::remove(temporary, error);
         report.result = SaveConfigurationResult::VerificationMismatch;
-        report.detail = "The prepared overlay did not read back as the submitted draft.";
+        report.detail = std::format(
+            "The prepared overlay did not read back as the submitted draft: {}.",
+            DescribeConfigurationDifference(desired, candidate.effective));
         return report;
     }
 
-    bool replaced{};
-    DWORD replaceError{ERROR_SUCCESS};
-    DWORD moveError{ERROR_SUCCESS};
-    if (existed) {
-        replaced = ReplaceFileW(customPath.c_str(), temporary.c_str(), nullptr,
-                                REPLACEFILE_WRITE_THROUGH, nullptr, nullptr) != FALSE;
-        if (!replaced) {
-            replaceError = GetLastError();
-            // Some virtualized/mod-manager directories reject ReplaceFileW even
-            // though a verified same-directory rename is supported. Keep the
-            // stronger metadata-preserving operation first, then use the same
-            // write-through atomic replacement used for a newly-created overlay.
-            replaced = MoveFileExW(
-                temporary.c_str(), customPath.c_str(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-            if (!replaced) moveError = GetLastError();
-        }
-    } else {
-        replaced = MoveFileExW(
-            temporary.c_str(), customPath.c_str(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-        if (!replaced) moveError = GetLastError();
-    }
+    // ReplaceFileW can report success through Mod Organizer's virtual filesystem
+    // while the next virtual read still resolves the previous file. A verified
+    // same-directory MoveFileExW replacement is atomic for this single-file
+    // transaction and is the path validated against the live MO2 overwrite target.
+    const bool replaced = MoveFileExW(
+        temporary.c_str(), customPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+    const auto moveError = replaced ? ERROR_SUCCESS : GetLastError();
     if (!replaced) {
         std::filesystem::remove(temporary, error);
         report.result = SaveConfigurationResult::WriteFailure;
         report.detail = std::format(
             "The verified overlay could not replace the user configuration atomically "
-            "(ReplaceFile error {}, MoveFileEx error {}).",
-            replaceError, moveError);
+            "(MoveFileEx error {}).",
+            moveError);
         return report;
     }
+
+    // GetPrivateProfileString caches parsed INI data by filename. Atomic file
+    // replacement changes the file behind that cache, so explicitly invalidate
+    // it before the mandatory committed-file verification reload. Without this,
+    // the first Apply can commit successfully but compare against the old cache;
+    // a second Apply then appears to be required.
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, customPath.c_str());
 
     report.configuration = LoadDetailed(defaultsPath, importsDirectory, customPath);
     if (!SameConfiguration(report.configuration.effective, desired)) {
         report.result = SaveConfigurationResult::ReloadFailure;
-        report.detail = "The committed overlay could not be reloaded as the submitted draft.";
+        report.detail = std::format(
+            "The committed overlay could not be reloaded as the submitted draft: {}.",
+            DescribeConfigurationDifference(
+                desired, report.configuration.effective));
         return report;
     }
     report.result = SaveConfigurationResult::Ok;
@@ -1064,24 +1143,13 @@ bool WriteKeyboardShortcuts(const std::filesystem::path& customPath,
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, temporary.c_str());
     }
 
-    bool replaced{};
-    if (wrote) {
-        if (existed) {
-            replaced = ReplaceFileW(customPath.c_str(), temporary.c_str(), nullptr,
-                                    REPLACEFILE_WRITE_THROUGH, nullptr, nullptr) != FALSE;
-            if (!replaced) {
-                replaced = MoveFileExW(
-                    temporary.c_str(), customPath.c_str(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-            }
-        } else {
-            replaced = MoveFileExW(
-                temporary.c_str(), customPath.c_str(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-        }
-    }
+    const bool replaced = wrote && MoveFileExW(
+        temporary.c_str(), customPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
     if (!replaced) {
         std::filesystem::remove(temporary, error);
+    } else {
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, customPath.c_str());
     }
     return replaced;
 }
@@ -1144,24 +1212,13 @@ bool WriteJoystickShortcuts(const std::filesystem::path& customPath,
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, temporary.c_str());
     }
 
-    bool replaced{};
-    if (wrote) {
-        if (existed) {
-            replaced = ReplaceFileW(customPath.c_str(), temporary.c_str(), nullptr,
-                                    REPLACEFILE_WRITE_THROUGH, nullptr, nullptr) != FALSE;
-            if (!replaced) {
-                replaced = MoveFileExW(
-                    temporary.c_str(), customPath.c_str(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-            }
-        } else {
-            replaced = MoveFileExW(
-                temporary.c_str(), customPath.c_str(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-        }
-    }
+    const bool replaced = wrote && MoveFileExW(
+        temporary.c_str(), customPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
     if (!replaced) {
         std::filesystem::remove(temporary, error);
+    } else {
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, customPath.c_str());
     }
     return replaced;
 }
@@ -1193,23 +1250,14 @@ bool WriteAutomationEnabled(const std::filesystem::path& customPath, bool enable
                            L"General", L"bAutomationEnabled", enabled ? L"true" : L"false",
                            temporary.c_str()) != FALSE;
     if (wrote) WritePrivateProfileStringW(nullptr, nullptr, nullptr, temporary.c_str());
-    bool replaced{};
-    if (wrote) {
-        if (existed) {
-            replaced = ReplaceFileW(customPath.c_str(), temporary.c_str(), nullptr,
-                                    REPLACEFILE_WRITE_THROUGH, nullptr, nullptr) != FALSE;
-            if (!replaced) {
-                replaced = MoveFileExW(
-                    temporary.c_str(), customPath.c_str(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-            }
-        } else {
-            replaced = MoveFileExW(
-                temporary.c_str(), customPath.c_str(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-        }
+    const bool replaced = wrote && MoveFileExW(
+        temporary.c_str(), customPath.c_str(),
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+    if (!replaced) {
+        std::filesystem::remove(temporary, error);
+    } else {
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, customPath.c_str());
     }
-    if (!replaced) std::filesystem::remove(temporary, error);
     return replaced;
 }
 

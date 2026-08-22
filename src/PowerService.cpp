@@ -9,7 +9,8 @@ BackendResult PowerService::Capture(Snapshot& snapshot) {
     return backend_.Capture(snapshot);
 }
 
-ApplyResult PowerService::ApplyPreset(const Preset& preset, std::span<const Demand> demands) {
+ApplyResult PowerService::ApplyPreset(const Preset& preset, std::span<const Demand> demands,
+                                      CrewBonusMode crewBonusMode) {
     std::scoped_lock lock(mutex_);
     ApplyResult result{};
     Snapshot snapshot{};
@@ -18,7 +19,8 @@ ApplyResult PowerService::ApplyPreset(const Preset& preset, std::span<const Dema
         return result;
     }
 
-    result.allocation = PowerAllocator::Allocate(snapshot, preset, demands);
+    result.allocation = PowerAllocator::Allocate(
+        snapshot, preset, demands, crewBonusMode);
     if (result.allocation.status != AllocationStatus::Ok) {
         result.backend = BackendResult::InvalidRequest;
         return result;

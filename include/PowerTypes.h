@@ -30,6 +30,15 @@ inline constexpr std::array<SystemId, kSystemCount> kCockpitOrder{
     return static_cast<std::size_t>(system);
 }
 
+// Config arrays, Control rows, snapshots, and the public API all index by this
+// canonical order. Native layouts must translate into it at their boundary.
+static_assert(ToIndex(SystemId::Weapon0) == 0);
+static_assert(ToIndex(SystemId::Weapon1) == 1);
+static_assert(ToIndex(SystemId::Weapon2) == 2);
+static_assert(ToIndex(SystemId::Engine) == 3);
+static_assert(ToIndex(SystemId::Shield) == 4);
+static_assert(ToIndex(SystemId::GravDrive) == 5);
+
 [[nodiscard]] constexpr std::string_view SystemKey(SystemId system) noexcept {
     constexpr std::array<std::string_view, kSystemCount> keys{
         "Weapon0", "Weapon1", "Weapon2", "Engine", "Shield", "GravDrive"};
@@ -49,6 +58,17 @@ struct SystemState {
     bool present{};
     std::uint16_t current{};
     std::uint16_t maximum{};
+    // Power supplied by crew/perks is included in current but cannot be
+    // reassigned by the reactor allocator.
+    std::uint16_t bonus{};
+};
+
+enum class CrewBonusMode : std::uint8_t {
+    // Preserve vanilla behavior: the always-on bonus is added to the pips
+    // requested by a preset, up to the installed system maximum.
+    Additive,
+    // Let the always-on bonus satisfy the preset's requested target.
+    CountTowardPreset,
 };
 
 struct Snapshot {

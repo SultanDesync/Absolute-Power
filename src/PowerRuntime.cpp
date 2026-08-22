@@ -229,6 +229,7 @@ void PowerRuntime::ProcessAutomationSettlement(
     Preset basePreset;
     std::uint64_t generation{};
     std::string basePresetId;
+    CrewBonusMode crewBonusMode{CrewBonusMode::Additive};
     {
         std::scoped_lock lock(mutex_);
         if (!gameThreadAvailable_ || state_ == RuntimeState::Uninitialized ||
@@ -249,6 +250,9 @@ void PowerRuntime::ProcessAutomationSettlement(
         basePreset = *found;
         basePresetId = activePresetId_;
         generation = configurationGeneration_;
+        crewBonusMode = configuration_.crewBonusCountsTowardPreset
+                            ? CrewBonusMode::CountTowardPreset
+                            : CrewBonusMode::Additive;
         lastAutomationApplyAttempt_ = now;
     }
 
@@ -317,7 +321,8 @@ void PowerRuntime::ProcessAutomationSettlement(
         return;
     }
 
-    const auto result = service_.ApplyPreset(basePreset, demands);
+    const auto result = service_.ApplyPreset(
+        basePreset, demands, crewBonusMode);
     bool restored{};
     bool resultChanged{};
     {
@@ -398,6 +403,7 @@ BackendResult PowerRuntime::Capture(Snapshot& snapshot) {
 ApplyResult PowerRuntime::ActivatePreset(std::string_view presetId) {
     Preset preset;
     std::vector<Demand> demands;
+    CrewBonusMode crewBonusMode{CrewBonusMode::Additive};
     {
         std::scoped_lock lock(mutex_);
         const auto* found = FindPreset(presetId);
@@ -407,6 +413,9 @@ ApplyResult PowerRuntime::ActivatePreset(std::string_view presetId) {
             return result;
         }
         preset = *found;
+        crewBonusMode = configuration_.crewBonusCountsTowardPreset
+                            ? CrewBonusMode::CountTowardPreset
+                            : CrewBonusMode::Additive;
     }
 
     Snapshot snapshot{};
@@ -417,7 +426,7 @@ ApplyResult PowerRuntime::ActivatePreset(std::string_view presetId) {
         std::scoped_lock lock(mutex_);
         demands = automation_.ActiveDemands(snapshot, now);
     }
-    auto result = service_.ApplyPreset(preset, demands);
+    auto result = service_.ApplyPreset(preset, demands, crewBonusMode);
     if (result.backend == BackendResult::Ok && result.totalChanges == 0) {
         std::scoped_lock lock(mutex_);
         activePresetId_ = preset.id;

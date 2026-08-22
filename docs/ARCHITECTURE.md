@@ -44,15 +44,19 @@ level—raising a system to pip 5 necessarily includes pips 1 through 4.
 The allocator works in this order:
 
 1. Validate that the snapshot is internally consistent.
-2. Sort active automation demands by descending rule priority.
-3. Allocate each demand as an emergency minimum, clipped to the installed maximum.
-4. Allocate Green one pip per eligible system per pass using the preset order.
-5. Enter Yellow only if all Green requests are satisfied.
-6. Enter Red only if all Green and Yellow requests are satisfied.
-7. Leave unused reactor output in the available pool.
+2. Reserve native crew/perk bonus pips as non-reassignable system floors.
+3. Apply the configured crew policy: vanilla-additive, or count the bonus toward preset targets.
+4. Sort active automation demands by descending rule priority.
+5. Allocate each demand as an emergency minimum, clipped to the installed maximum.
+6. Allocate Green one pip per eligible system per pass using the preset order.
+7. Enter Yellow only if all Green requests are satisfied.
+8. Enter Red only if all Green and Yellow requests are satisfied.
+9. Leave unused reactor output in the available pool.
 
 When applying a result, every decrease is issued before any increase. That avoids
 transient over-allocation and matches the native model's available-power accounting.
+Native setter targets are translated from effective power back to reactor-assigned power by
+subtracting the detected bonus; the later snapshot adds it back for UI and convergence checks.
 
 ## Automation semantics
 

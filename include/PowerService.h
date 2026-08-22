@@ -21,7 +21,9 @@ public:
     explicit PowerService(IPowerBackend& backend) : backend_(backend) {}
 
     BackendResult Capture(Snapshot& snapshot);
-    ApplyResult ApplyPreset(const Preset& preset, std::span<const Demand> demands = {});
+    ApplyResult ApplyPreset(
+        const Preset& preset, std::span<const Demand> demands = {},
+        CrewBonusMode crewBonusMode = CrewBonusMode::Additive);
 
 private:
     IPowerBackend& backend_;

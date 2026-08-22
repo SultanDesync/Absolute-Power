@@ -1,5 +1,5 @@
 set_project("AbsolutePower")
-set_version("0.2.0")
+set_version("0.3.0")
 set_languages("c++23")
 set_warnings("all")
 
@@ -20,7 +20,7 @@ target("AbsolutePower")
     add_defines("ABSOLUTE_POWER_EXPORTS")
     add_defines(
         "PLUGIN_VERSION_MAJOR=0",
-        "PLUGIN_VERSION_MINOR=2",
+        "PLUGIN_VERSION_MINOR=3",
         "PLUGIN_VERSION_PATCH=0",
         "PLUGIN_VERSION_PRERELEASE=alpha"
     )
@@ -86,6 +86,13 @@ target("weapon_fire_event_test")
     add_tests("weapon_fire_event_decode")
     add_includedirs("include")
     add_files("tests/weapon_fire_event_test.cpp")
+
+target("native_power_mapping_test")
+    set_kind("binary")
+    set_default(false)
+    add_tests("all_native_power_pool_mappings")
+    add_includedirs("include")
+    add_files("tests/native_power_mapping_test.cpp")
 
 target("suite_api_test")
     set_kind("binary")

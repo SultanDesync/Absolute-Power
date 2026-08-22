@@ -1,4 +1,4 @@
-[center][size=6][color=#00ccff][b]Absolute Power 0.2.0-alpha[/b][/color][/size]
+[center][size=6][color=#00ccff][b]Absolute Power 0.3.0-alpha[/b][/color][/size]
 [size=4][b][color=#ffaa00]Portable, priority-driven ship-power presets for Starfield.[/color][/b][/size][/center]
 
 [b]Power preset mods already exist—but not all ships are equal.[/b] A fixed distribution made for one reactor and loadout may be impossible, wasteful, or simply wrong on a ship with less power, different weapons, or different subsystem limits.

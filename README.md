@@ -1,4 +1,4 @@
-# Absolute Power v0.2.0-alpha
+# Absolute Power v0.3.0-alpha
 
 Conventional power presets reproduce a fixed distribution, but Starfield ships are not equal. A
 layout made for one reactor and loadout may be impossible—or simply wrong—on a ship with less
@@ -19,6 +19,7 @@ surface yet.
 - Three priority tiers per ship system: Green, Yellow, and Red.
 - Deterministic allocation with strict tier barriers and round-robin tie breaking.
 - Portable presets that clip safely to the current ship's installed subsystem limits.
+- Crew/perk bonus-power awareness with an explicit vanilla-additive or counts-toward-profile policy.
 - Native number-row shortcuts for headless operation without a configuration frontend.
 - Optional keyboard or HOTAS/POV preset bindings owned and persisted by Power.
 - A full native **Absolute Control** menu with profile selection, startup behavior, bindings,
@@ -65,6 +66,12 @@ usable across ships without assuming identical reactors or equipment.
 The shipped **Stealth** profile requests one Green pip for Engines and Shields and leaves Weapons
 and Grav Drive unpowered. It provides minimal mobility and protection while leaving most reactor
 power unassigned.
+
+Crew members such as Sam Coe and Omari Hassan can supply an always-on bonus pip. Absolute Power
+detects that bonus separately from reactor-assigned power and never attempts to release it. By
+default, the bonus remains additive, matching vanilla behavior. Turn on **Count crew bonus toward
+profile** in Absolute Control, or set `bCrewBonusCountsTowardPreset=true` in the custom INI, when
+the bonus should instead satisfy part of a profile's requested target.
 
 ## Default controls
 

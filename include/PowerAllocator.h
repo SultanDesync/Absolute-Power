@@ -14,7 +14,8 @@ namespace AbsolutePower::PowerAllocator {
 // filled in strict Green -> Yellow -> Red barriers. A tier may be partial when
 // reactor output is insufficient; the next tier never receives power in that case.
 [[nodiscard]] Allocation Allocate(const Snapshot& snapshot, const Preset& preset,
-                                  std::span<const Demand> demands = {});
+                                  std::span<const Demand> demands = {},
+                                  CrewBonusMode crewBonusMode = CrewBonusMode::Additive);
 
 // Native absolute setters are planned releases-first so reallocations never
 // transiently request more reactor output than the ship owns.

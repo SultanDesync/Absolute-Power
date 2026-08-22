@@ -55,6 +55,7 @@ struct PresetControl {
         DeleteOrHide,
         RevertOverride,
         StartupToggle,
+        CrewBonusCountsTowardPreset,
         SystemTieBreak,
         Name,
         Binding,
@@ -620,6 +621,9 @@ Result __cdecl ReadPresets(void*, const char* rawId, ValueV1* output) noexcept {
             } else if (control->kind == PresetControl::Kind::StartupToggle) {
                 const auto isStartup = data.startupPreset == preset->id;
                 *output = Boolean(isStartup);
+            } else if (control->kind ==
+                       PresetControl::Kind::CrewBonusCountsTowardPreset) {
+                *output = Boolean(data.crewBonusCountsTowardPreset);
             } else if (control->kind == PresetControl::Kind::SystemTieBreak &&
                        control->systemIndex < AbsolutePower::kCockpitOrder.size()) {
                 const auto system = AbsolutePower::kCockpitOrder[control->systemIndex];
@@ -697,6 +701,13 @@ Result __cdecl WritePresets(void*, const char* rawId, const ValueV1* value) noex
                 } else if (g_presets.draft.startupPreset == preset->id) {
                     g_presets.draft.startupPreset.clear();
                 }
+            } else if (control->kind ==
+                       PresetControl::Kind::CrewBonusCountsTowardPreset) {
+                if (value->kind != ValueKind::Boolean || value->booleanValue > 1) {
+                    return Result::InvalidArgument;
+                }
+                g_presets.draft.crewBonusCountsTowardPreset =
+                    value->booleanValue != 0;
             } else if (control->kind == PresetControl::Kind::SystemTieBreak &&
                 control->systemIndex < AbsolutePower::kCockpitOrder.size()) {
                 if (value->kind != ValueKind::Integer || value->integerValue < 0 ||
@@ -1105,9 +1116,11 @@ Live::LiveFrameV1 BuildPowerFrame() {
     const auto view = PowerRuntime::Get().ConfigurationSnapshot();
     AbsolutePower::Preset preset;
     bool hasPreset{};
+    bool crewBonusCountsTowardPreset{};
     {
         std::scoped_lock lock(g_presets.mutex);
         const auto& data = g_presets.editing ? g_presets.draft : view.data;
+        crewBonusCountsTowardPreset = data.crewBonusCountsTowardPreset;
         auto found = std::ranges::find(data.presets, g_presets.selectedPresetId,
                                        &AbsolutePower::Preset::id);
         if (found == data.presets.end()) {
@@ -1128,7 +1141,11 @@ Live::LiveFrameV1 BuildPowerFrame() {
     const auto snapshotResult = PowerRuntime::Get().Capture(snapshot);
     AbsolutePower::Allocation allocation{};
     if (snapshotResult == BackendResult::Ok && hasPreset) {
-        allocation = AbsolutePower::PowerAllocator::Allocate(snapshot, preset);
+        allocation = AbsolutePower::PowerAllocator::Allocate(
+            snapshot, preset, {},
+            crewBonusCountsTowardPreset
+                ? AbsolutePower::CrewBonusMode::CountTowardPreset
+                : AbsolutePower::CrewBonusMode::Additive);
     } else {
         frame.flags |= Live::kFrameUnavailable;
     }
@@ -1729,9 +1746,14 @@ Result __cdecl ReadDiagnostics(void*, const char* rawId, ValueV1* output) noexce
                 RuntimeStateLabel(state), BackendResultLabel(snapshotResult),
                 activation.sequence));
         } else if (id == "live-ship-summary") {
+            const auto crewBonus = std::accumulate(
+                snapshot.systems.begin(), snapshot.systems.end(), std::uint32_t{},
+                [](std::uint32_t total, const auto& system) {
+                    return total + system.bonus;
+                });
             *output = String(snapshotResult == BackendResult::Ok ?
-                std::format("Pilot ready | reactor {} total | {} currently unassigned",
-                    snapshot.totalPower, snapshot.available) :
+                std::format("Pilot ready | reactor {} total | {} crew bonus | {} currently unassigned",
+                    snapshot.totalPower - crewBonus, crewBonus, snapshot.available) :
                 std::format("Live ship unavailable: {}", BackendResultLabel(snapshotResult)));
         } else if (id.starts_with("system-")) {
             const auto key = id.substr(std::string_view{"system-"}.size());
@@ -1746,13 +1768,16 @@ Result __cdecl ReadDiagnostics(void*, const char* rawId, ValueV1* output) noexce
             const auto& value = snapshot.systems[*system];
             *output = String(snapshotResult != BackendResult::Ok ? "Snapshot unavailable" :
                 !value.present ? "Not installed" :
-                std::format("{} / {} pips", value.current, value.maximum));
+                std::format("{} / {} pips{}", value.current, value.maximum,
+                    value.bonus ? std::format(" ({} crew bonus)", value.bonus) : ""));
         } else if (id == "configuration-summary") {
             *output = String(std::format(
-                "Generation {} | {} presets | {} rules | automation {}",
+                "Generation {} | {} presets | {} rules | automation {} | crew bonus {}",
                 configuration.generation, configuration.data.presets.size(),
                 configuration.data.rules.size(),
-                configuration.data.automationEnabled ? "ON" : "OFF"));
+                configuration.data.automationEnabled ? "ON" : "OFF",
+                configuration.data.crewBonusCountsTowardPreset
+                    ? "COUNTS TOWARD PROFILE" : "ADDITIVE (VANILLA)"));
         } else if (id == "automation-runtime-summary") {
             const auto totalWeaponEvents =
                 automationStatus.weaponEventCounts[0] +
@@ -1939,6 +1964,15 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices,
             "Automatically activate this power profile when loading into your ship or starting a game.");
         add({"preset-startup", PresetControl::Kind::StartupToggle}, std::move(startup));
     }
+
+    addHeader("crew-power-policy", "Crew Power Policy",
+              "Choose whether always-on crew power is additive or satisfies profile targets.");
+    add({"crew-bonus-counts-toward-preset",
+         PresetControl::Kind::CrewBonusCountsTowardPreset},
+        Control(ControlKind::Toggle, kControlAdvanced,
+                "crew-bonus-counts-toward-preset",
+                "Count crew bonus toward profile",
+                "Off preserves vanilla additive behavior. On lets an always-on crew bonus pip satisfy this profile's requested total for that system."));
 
     addHeader("hardware-bindings", "Hardware Bindings",
               "Assign keyboard and physical flight-control shortcuts.");

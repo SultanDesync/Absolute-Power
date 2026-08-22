@@ -12,6 +12,12 @@ The bootstrap is based on the accepted artifacts in
 - The accepted component contained a bounded part table with installed weapons, shield,
   engine, and grav-drive objects. A ship with only two weapons returned five parts; the
   empty third HUD column was not a part object.
+- The native pool-selector branches are identified by their embedded failure strings:
+  selector `1` / identity gate `0x1F2FAC4` is Engines, selector `2` / `0x1F2FA82`
+  is Shields, and selector `3` / `0x1F2FA40` is Grav Drive. Live three-weapon
+  testing establishes that the power part table's weapon enumeration remains canonical:
+  part order `0,1,2` maps to `Weapon0,Weapon1,Weapon2`. Capture and setter lookup
+  share this single six-pool mapping contract.
 - Each accepted part exposed maximum power at `+0x60` and current power at `+0x64`.
 - Native absolute setter RVA `0x21573A0`, add-one `0x2157440`, and remove-one
   `0x2157633` were observed and exact-byte-gated.

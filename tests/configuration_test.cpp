@@ -33,6 +33,7 @@ int main() {
     assert(configuration.rules.size() == 3);
     assert(configuration.startupPreset == "Balanced");
     assert(!configuration.automationEnabled);
+    assert(!configuration.crewBonusCountsTowardPreset);
 
     const auto& balanced = configuration.presets.front();
     assert(balanced.id == "Balanced");
@@ -194,6 +195,7 @@ int main() {
     desired.presets.push_back(created);
     desired.startupPreset = "Created";
     desired.automationEnabled = true;
+    desired.crewBonusCountsTowardPreset = true;
     desired.keyboardShortcuts = {
         PresetShortcut{"Balanced", KeyboardChord{.virtualKey = 0x31}},
     };
@@ -204,6 +206,7 @@ int main() {
     assert(savedTransaction.result == SaveConfigurationResult::Ok);
     assert(savedTransaction.configuration.effective.startupPreset == "Created");
     assert(savedTransaction.configuration.effective.automationEnabled);
+    assert(savedTransaction.configuration.effective.crewBonusCountsTowardPreset);
     assert(std::ranges::find(savedTransaction.configuration.effective.presets,
                              "Combat", &Preset::id) ==
            savedTransaction.configuration.effective.presets.end());
@@ -225,6 +228,7 @@ int main() {
     assert(transactionText.contains("[Preserved]"));
     assert(transactionText.contains("UnknownPresetKey=Keep"));
     assert(transactionText.contains("[KeyboardPresetBindings]"));
+    assert(transactionText.contains("bCrewBonusCountsTowardPreset=true"));
     assert(transactionText.contains("[Preset.Combat]"));
     assert(transactionText.contains("Deleted=true"));
     assert(!transactionText.contains("Name=User Balanced"));

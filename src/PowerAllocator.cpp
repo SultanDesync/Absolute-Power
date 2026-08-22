@@ -10,7 +10,8 @@ namespace AbsolutePower::PowerAllocator {
 namespace {
 
 std::array<std::uint16_t, kSystemCount>
-BuildTierTargets(const Snapshot& snapshot, const Preset& preset, PriorityTier tier) {
+BuildTierTargets(const Snapshot& snapshot, const Preset& preset, PriorityTier tier,
+                 CrewBonusMode crewBonusMode) {
     std::array<std::uint16_t, kSystemCount> targets{};
     for (std::size_t index = 0; index < kSystemCount; ++index) {
         const auto maximum = snapshot.systems[index].present
@@ -24,7 +25,11 @@ BuildTierTargets(const Snapshot& snapshot, const Preset& preset, PriorityTier ti
         for (std::size_t tierIndex = 0; tierIndex <= static_cast<std::size_t>(tier);
              ++tierIndex) {
             cumulative += requested[tierIndex];
-            accepted = std::min<std::uint32_t>(cumulative, maximum);
+            const auto additiveBonus = crewBonusMode == CrewBonusMode::Additive
+                                           ? snapshot.systems[index].bonus
+                                           : 0u;
+            accepted = std::min<std::uint32_t>(
+                cumulative + additiveBonus, maximum);
         }
         targets[index] = static_cast<std::uint16_t>(accepted);
 
@@ -41,6 +46,9 @@ bool ValidateSnapshot(const Snapshot& snapshot) noexcept {
             return false;
         }
         if (system.current > system.maximum) {
+            return false;
+        }
+        if (system.bonus > system.current || system.bonus > system.maximum) {
             return false;
         }
         allocated += system.current;
@@ -64,7 +72,8 @@ bool ValidatePreset(const Preset& preset) noexcept {
 }
 
 Allocation Allocate(const Snapshot& snapshot, const Preset& preset,
-                    std::span<const Demand> demands) {
+                    std::span<const Demand> demands,
+                    CrewBonusMode crewBonusMode) {
     Allocation result{};
     if (!ValidateSnapshot(snapshot)) {
         result.status = AllocationStatus::InvalidSnapshot;
@@ -75,7 +84,17 @@ Allocation Allocate(const Snapshot& snapshot, const Preset& preset,
         return result;
     }
 
-    std::uint32_t remaining = snapshot.totalPower;
+    std::uint32_t bonusPower{};
+    for (std::size_t index = 0; index < kSystemCount; ++index) {
+        if (!snapshot.systems[index].present) continue;
+        result.target[index] = snapshot.systems[index].bonus;
+        bonusPower += snapshot.systems[index].bonus;
+    }
+    if (bonusPower > snapshot.totalPower) {
+        result.status = AllocationStatus::InvalidSnapshot;
+        return result;
+    }
+    std::uint32_t remaining = snapshot.totalPower - bonusPower;
     std::uint32_t clippedPresetPips{};
     for (std::size_t index = 0; index < kSystemCount; ++index) {
         const auto& plan = preset.systems[index];
@@ -84,7 +103,12 @@ Allocation Allocate(const Snapshot& snapshot, const Preset& preset,
         const auto maximum = snapshot.systems[index].present
                                  ? static_cast<std::uint32_t>(snapshot.systems[index].maximum)
                                  : 0u;
-        if (requested > maximum) clippedPresetPips += requested - maximum;
+        const auto presetCapacity = crewBonusMode == CrewBonusMode::Additive
+                                        ? maximum - snapshot.systems[index].bonus
+                                        : maximum;
+        if (requested > presetCapacity) {
+            clippedPresetPips += requested - presetCapacity;
+        }
     }
     result.clippedPresetPips = static_cast<std::uint16_t>(std::min<std::uint32_t>(
         clippedPresetPips, std::numeric_limits<std::uint16_t>::max()));
@@ -122,7 +146,7 @@ Allocation Allocate(const Snapshot& snapshot, const Preset& preset,
     }
 
     for (const auto tier : {PriorityTier::Green, PriorityTier::Yellow, PriorityTier::Red}) {
-        auto desired = BuildTierTargets(snapshot, preset, tier);
+        auto desired = BuildTierTargets(snapshot, preset, tier, crewBonusMode);
         bool needsMore = true;
         while (remaining > 0 && needsMore) {
             needsMore = false;

@@ -3,13 +3,13 @@
 ## Listing identity
 
 - **Name:** Absolute Power
-- **Version:** 0.2.0-alpha
+- **Version:** 0.3.0-alpha
 - **Tagline:** Portable, priority-driven ship-power presets for Starfield.
 - **Suggested summary:** Fixed power presets assume equal ships. Absolute Power applies universal Green, Yellow, and Red priorities, funding important systems before lower tiers and adapting the same plan to different reactors and loadouts.
 - **Primary cover:** `docs/images/absolute-power-cover-1600x900-v2.png`
 - **Nexus banner (1300×372):** `docs/images/absolute-power-banner-1300x372-v2.png`
 - **Feature screenshot:** `docs/images/absolute-power-presets.png`
-- **Main file:** `Absolute-Power-v0.2.0-alpha-Release.zip`
+- **Main file:** `Absolute-Power-v0.3.0-alpha-Release.zip`
 
 ## Requirements
 
