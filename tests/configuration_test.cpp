@@ -34,12 +34,24 @@ int main() {
     assert(configuration.startupPreset == "Balanced");
     assert(!configuration.automationEnabled);
     assert(!configuration.crewBonusCountsTowardPreset);
+    assert(configuration.weaponPoolOrder == kCanonicalWeaponPoolOrder);
 
     const auto& balanced = configuration.presets.front();
     assert(balanced.id == "Balanced");
     const auto weapon = balanced.systems[ToIndex(SystemId::Weapon0)];
-    assert(weapon.green == 1 && weapon.yellow == 2 && weapon.red == 2);
+    assert(weapon.green == 1 && weapon.yellow == 2 && weapon.red == 9);
     assert(balanced.tieBreakOrder.front() == SystemId::Shield);
+
+    const auto planTotal = [](const TierPlan& plan) {
+        return static_cast<std::uint32_t>(plan.green) + plan.yellow + plan.red;
+    };
+    for (const std::string_view id : {"Balanced", "Combat", "Travel"}) {
+        const auto preset = std::ranges::find(configuration.presets, id, &Preset::id);
+        assert(preset != configuration.presets.end());
+        assert(std::ranges::all_of(
+            preset->systems,
+            [&](const TierPlan& plan) { return planTotal(plan) == 12; }));
+    }
 
     const auto stealth = std::ranges::find(
         configuration.presets, "Stealth", &Preset::id);
@@ -53,6 +65,8 @@ int main() {
     assert(emptyPlan(stealth->systems[ToIndex(SystemId::Weapon1)]));
     assert(emptyPlan(stealth->systems[ToIndex(SystemId::Weapon2)]));
     assert(emptyPlan(stealth->systems[ToIndex(SystemId::GravDrive)]));
+    assert(planTotal(stealth->systems[ToIndex(SystemId::Engine)]) == 1);
+    assert(planTotal(stealth->systems[ToIndex(SystemId::Shield)]) == 1);
 
     const auto& incomingFire = configuration.rules[1];
     assert(incomingFire.id == "IncomingFire");
@@ -145,7 +159,8 @@ int main() {
                                defaultsPath);
     {
         std::ofstream stream(importPath);
-        stream << "[Preset.PackTravel]\nName=Pack Travel\n"
+        stream << "[General]\nsWeaponPoolOrder=Weapon0,Weapon2,Weapon1\n\n"
+                  "[Preset.PackTravel]\nName=Pack Travel\n"
                   "Order=Engine,Shield,GravDrive,Weapon0,Weapon1,Weapon2\n"
                   "Weapon0=0,0,0\nWeapon1=0,0,0\nWeapon2=0,0,0\n"
                   "Engine=4,0,0\nShield=2,0,0\nGravDrive=0,0,0\n";
@@ -164,6 +179,7 @@ int main() {
 
     const auto sourced = Configuration::LoadDetailed(
         defaultsPath, importsPath, transactionCustomPath);
+    assert(sourced.effective.weaponPoolOrder == kCanonicalWeaponPoolOrder);
     assert(sourced.effective.presets.size() == 6);
     const auto balancedSource = std::ranges::find(
         sourced.presetSources, "Balanced", &ConfigurationRecordSource::recordId);
@@ -196,6 +212,8 @@ int main() {
     desired.startupPreset = "Created";
     desired.automationEnabled = true;
     desired.crewBonusCountsTowardPreset = true;
+    desired.weaponPoolOrder = {
+        SystemId::Weapon0, SystemId::Weapon2, SystemId::Weapon1};
     desired.keyboardShortcuts = {
         PresetShortcut{"Balanced", KeyboardChord{.virtualKey = 0x31}},
     };
@@ -207,6 +225,8 @@ int main() {
     assert(savedTransaction.configuration.effective.startupPreset == "Created");
     assert(savedTransaction.configuration.effective.automationEnabled);
     assert(savedTransaction.configuration.effective.crewBonusCountsTowardPreset);
+    assert(savedTransaction.configuration.effective.weaponPoolOrder ==
+           desired.weaponPoolOrder);
     assert(std::ranges::find(savedTransaction.configuration.effective.presets,
                              "Combat", &Preset::id) ==
            savedTransaction.configuration.effective.presets.end());
@@ -229,6 +249,7 @@ int main() {
     assert(transactionText.contains("UnknownPresetKey=Keep"));
     assert(transactionText.contains("[KeyboardPresetBindings]"));
     assert(transactionText.contains("bCrewBonusCountsTowardPreset=true"));
+    assert(transactionText.contains("sWeaponPoolOrder=Weapon0,Weapon2,Weapon1"));
     assert(transactionText.contains("[Preset.Combat]"));
     assert(transactionText.contains("Deleted=true"));
     assert(!transactionText.contains("Name=User Balanced"));
@@ -273,6 +294,19 @@ int main() {
     assert(Configuration::Save(defaultsPath, importsPath, transactionCustomPath,
                                sourced.inherited, invalid)
                .result == SaveConfigurationResult::InvalidDraft);
+    invalid = desired;
+    invalid.weaponPoolOrder = {
+        SystemId::Weapon0, SystemId::Weapon1, SystemId::Weapon1};
+    assert(Configuration::Save(defaultsPath, importsPath, transactionCustomPath,
+                               sourced.inherited, invalid)
+               .result == SaveConfigurationResult::InvalidDraft);
+    {
+        std::ofstream stream(transactionCustomPath, std::ios::trunc);
+        stream << "[General]\nsWeaponPoolOrder=Weapon0,Weapon1,Weapon1\n";
+    }
+    const auto malformed = Configuration::Load(
+        defaultsPath, importsPath, transactionCustomPath);
+    assert(!ValidWeaponPoolOrder(malformed.weaponPoolOrder));
     std::filesystem::remove_all(transactionRoot, error);
     return 0;
 }

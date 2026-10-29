@@ -2,7 +2,9 @@
 
 #include "PowerBackend.h"
 
+#include <array>
 #include <cstdint>
+#include <mutex>
 
 namespace AbsolutePower {
 
@@ -13,13 +15,25 @@ class NativePowerBackend final : public IPowerBackend {
 public:
     bool Initialize();
     [[nodiscard]] bool SetterSignaturesReady() const noexcept;
+    void SetWeaponPoolOrder(const WeaponPoolOrder& order);
 
     BackendResult Capture(Snapshot& snapshot) override;
     BackendResult SetPower(SystemId system, std::uint16_t targetPips) override;
 
 private:
+    struct Topology {
+        std::uintptr_t equipment{};
+        std::array<std::uintptr_t, kSystemCount> parts{};
+
+        constexpr bool operator==(const Topology&) const noexcept = default;
+    };
+
     bool setterSignaturesReady_{};
     std::uintptr_t module_{};
+    mutable std::mutex topologyMutex_;
+    WeaponPoolOrder weaponPoolOrder_{kCanonicalWeaponPoolOrder};
+    Topology capturedTopology_{};
+    bool capturedTopologyReady_{};
 };
 
 namespace ResearchLayout {
@@ -40,13 +54,12 @@ inline constexpr std::size_t PartMaximumPowerOffset = 0x60;
 inline constexpr std::size_t PartCurrentPowerOffset = 0x64;
 inline constexpr std::uint32_t WorkbenchReason = 1;
 
-// Installed weapon parts retain canonical W0/W1/W2 order. Keep the translation
-// explicit at the native boundary so it cannot be confused with Control's
-// one-based display labels (Weapon 1/2/3).
+// Starfield selector 0 enumerates only weapon-bearing entries in native part-table
+// order. Canonical order is the safe default; a validated permutation can adapt a
+// loadout whose populated HUD groups do not match that ordinal sequence.
 [[nodiscard]] constexpr SystemId WeaponSystemFromPartOrder(
-    std::uint32_t partOrder) noexcept {
-    constexpr std::array mapping{
-        SystemId::Weapon0, SystemId::Weapon1, SystemId::Weapon2};
+    std::uint32_t partOrder,
+    const WeaponPoolOrder& mapping = kCanonicalWeaponPoolOrder) noexcept {
     return partOrder < mapping.size() ? mapping[partOrder] : SystemId::Invalid;
 }
 

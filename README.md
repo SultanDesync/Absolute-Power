@@ -1,4 +1,4 @@
-# Absolute Power v0.3.0-alpha
+# Absolute Power v0.3.1-alpha
 
 Conventional power presets reproduce a fixed distribution, but Starfield ships are not equal. A
 layout made for one reactor and loadout may be impossible—or simply wrong—on a ship with less
@@ -39,6 +39,29 @@ surface yet.
 Native power application is exact-gated to the supported Starfield runtime. If validation fails,
 Power leaves the affected operation disabled instead of attempting an unsafe fallback.
 
+### Weapon-pool compatibility (0.3.1)
+
+Starfield's native power component stores only populated weapon-bearing parts and selects them by
+their order in that table; it does not expose an explicit Weapon 1/2/3 slot ID at this seam.
+Absolute Power therefore keeps Starfield's canonical order by default. Version 0.3.1 rejects a
+write if the resolved equipment topology changes after its planning snapshot, and rejects duplicate
+or overfull weapon layouts instead of silently choosing the first match.
+
+If a specific ship demonstrably presents Weapons 2 and 3 in the opposite order, add this bounded
+workaround to `AbsolutePower_Custom.ini`:
+
+```ini
+[General]
+sWeaponPoolOrder=Weapon0,Weapon2,Weapon1
+```
+
+The names above are stable configuration IDs: `Weapon0`, `Weapon1`, and `Weapon2` are displayed in
+game as Weapon 1, Weapon 2, and Weapon 3. The setting maps the first, second, and third *populated*
+native weapon entries, so sparse loadouts can put the absent HUD group last in the permutation.
+It is loadout-specific; restore `Weapon0,Weapon1,Weapon2` after changing to a ship whose canonical
+order is correct. Invalid or duplicate entries fail closed. With logging enabled, the first valid
+snapshot records the populated weapon count and active ordinal map.
+
 ## Installation
 
 Install the archive with MO2 or Vortex, or place these files manually:
@@ -62,6 +85,11 @@ Every ship system can request pips in three tiers:
 When a reactor cannot complete a tier, the allocator shares that tier one pip at a time in the
 preset's configured system order. Uncolored capacity remains unassigned. This makes one preset
 usable across ships without assuming identical reactors or equipment.
+
+The shipped **Balanced**, **Combat**, and **Travel** profiles rank all 12 possible pips for every
+system. Their large Red tails are deliberate: they express what should receive surplus power after
+the important tiers, even though a vanilla reactor cannot satisfy the complete plan. A custom
+profile may still leave capacity unrequested when that is intentional.
 
 The shipped **Stealth** profile requests one Green pip for Engines and Shields and leaves Weapons
 and Grav Drive unpowered. It provides minimal mobility and protection while leaving most reactor

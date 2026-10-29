@@ -65,6 +65,7 @@ void PowerRuntime::Initialize() {
     hotasWeaponBridgeSeen_ = false;
     lastAutomationApplyAttempt_ = {};
     lastAutomationResult_ = BackendResult::Ok;
+    backend_.SetWeaponPoolOrder(configuration_.weaponPoolOrder);
     backend_.Initialize();
     state_ = RuntimeState::AwaitingNativeSnapshotSeam;
     if (gameThreadAvailable_ && FindPreset(configuration_.startupPreset)) {
@@ -365,6 +366,7 @@ void PowerRuntime::ReloadConfiguration() {
     ++configurationGeneration_;
     automation_.SetRules(configuration_.rules);
     automation_.SetEnabled(configuration_.automationEnabled);
+    backend_.SetWeaponPoolOrder(configuration_.weaponPoolOrder);
     SeedKeyboardShortcutEdgesLocked();
     if (FindPreset(activePresetId_) == nullptr) activePresetId_.clear();
     if (FindPreset(pendingPresetId_) == nullptr) {
@@ -500,6 +502,7 @@ ConfigurationCommitReport PowerRuntime::SaveConfiguration(
     // own bounded controls. A preset/rule transaction carries them forward,
     // except that deleting a preset necessarily removes its orphan binding.
     desired.enableLog = configuration_.enableLog;
+    desired.weaponPoolOrder = configuration_.weaponPoolOrder;
     if (preserveKeyboardBindings) {
         desired.keyboardShortcuts = configuration_.keyboardShortcuts;
         desired.joystickShortcuts = configuration_.joystickShortcuts;
@@ -545,6 +548,7 @@ ConfigurationCommitReport PowerRuntime::SaveConfiguration(
     ruleSources_ = std::move(saved.configuration.ruleSources);
     automation_.SetRules(configuration_.rules);
     automation_.SetEnabled(configuration_.automationEnabled);
+    backend_.SetWeaponPoolOrder(configuration_.weaponPoolOrder);
     SeedKeyboardShortcutEdgesLocked();
     if (FindPreset(activePresetId_) == nullptr) activePresetId_.clear();
     if (FindPreset(pendingPresetId_) == nullptr) {

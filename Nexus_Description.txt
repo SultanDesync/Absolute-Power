@@ -1,4 +1,4 @@
-[center][size=6][color=#00ccff][b]Absolute Power 0.3.0-alpha[/b][/color][/size]
+[center][size=6][color=#00ccff][b]Absolute Power 0.3.1-alpha[/b][/color][/size]
 [size=4][b][color=#ffaa00]Portable, priority-driven ship-power presets for Starfield.[/color][/b][/size][/center]
 
 [b]Power preset mods already exist—but not all ships are equal.[/b] A fixed distribution made for one reactor and loadout may be impossible, wasteful, or simply wrong on a ship with less power, different weapons, or different subsystem limits.
@@ -17,8 +17,17 @@ For example, a Combat profile can protect Shields and Engines first, add preferr
 [*][b][color=#ff7f8f]Red — last:[/color][/b] discretionary capacity receives the remaining reactor output.[/*]
 [*][b]Deterministic sharing:[/b] when a reactor cannot complete a tier, systems receive pips one at a time in the preset's chosen order.[/*]
 [*][b]Portable limits:[/b] requests clip safely to each installed subsystem's real maximum, including empty weapon slots.[/*]
+[*][b]Complete default priorities:[/b] Balanced, Combat, and Travel rank all 12 possible pips for every system; unreachable Red tails still define where surplus power should go.[/*]
 [*][b]Unassigned means unassigned:[/b] a preset can deliberately leave reactor capacity unused for stealth or manual control.[/*]
 [/list]
+
+[line]
+
+[center][size=5][color=#ffaa00][b]0.3.1 weapon-pool compatibility patch[/b][/color][/size][/center]
+
+Starfield's native power table enumerates populated weapon-bearing parts; it does not expose an explicit HUD-slot ID at this seam. Absolute Power keeps the native canonical order by default, rejects duplicate or changing pool topologies, and logs the populated weapon count plus active ordinal map.
+
+If a particular loadout demonstrably transposes Weapons 2 and 3, add [font=Courier New]sWeaponPoolOrder=Weapon0,Weapon2,Weapon1[/font] under [font=Courier New][General][/font] in [font=Courier New]AbsolutePower_Custom.ini[/font]. This is a loadout-specific permutation of populated entries; restore [font=Courier New]Weapon0,Weapon1,Weapon2[/font] for canonical ships. Invalid mappings fail closed.
 
 [line]
 

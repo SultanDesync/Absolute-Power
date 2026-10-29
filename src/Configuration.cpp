@@ -184,6 +184,25 @@ SystemId ParseSystem(std::string_view value) {
     return SystemId::Invalid;
 }
 
+WeaponPoolOrder ParseWeaponPoolOrder(std::string_view value) {
+    WeaponPoolOrder result{};
+    result.fill(SystemId::Invalid);
+    std::size_t start{};
+    for (std::size_t index = 0; index < result.size(); ++index) {
+        const auto comma = value.find(',', start);
+        const auto end = comma == std::string_view::npos ? value.size() : comma;
+        result[index] = ParseSystem(value.substr(start, end - start));
+        if (index + 1 < result.size()) {
+            if (comma == std::string_view::npos) return result;
+            start = comma + 1;
+        } else if (comma != std::string_view::npos) {
+            return result;
+        }
+    }
+    if (!ValidWeaponPoolOrder(result)) result.fill(SystemId::Invalid);
+    return result;
+}
+
 TriggerKind ParseTrigger(std::string_view value, TriggerKind fallback) {
     const auto normalized = Lower(value);
     if (normalized == "weaponfired") return TriggerKind::WeaponFired;
@@ -340,6 +359,13 @@ void ApplyFile(ConfigurationData& data, const std::filesystem::path& path,
         data.crewBonusCountsTowardPreset = ParseBool(
             *value, data.crewBonusCountsTowardPreset);
     }
+    // This describes one installed ship/loadout, not a portable preset pack.
+    // Imports cannot silently change the native identity boundary.
+    if (source.kind != ConfigurationSourceKind::Import) {
+        if (const auto value = ReadValue(path, L"General", L"sWeaponPoolOrder")) {
+            data.weaponPoolOrder = ParseWeaponPoolOrder(*value);
+        }
+    }
     if (const auto value = ReadValue(path, L"General", L"sStartupPreset")) {
         const auto normalized = Lower(*value);
         if (normalized == "none" || normalized == "disabled" || normalized.empty()) {
@@ -458,6 +484,7 @@ bool SameConfiguration(const ConfigurationData& left,
            left.automationEnabled == right.automationEnabled &&
            left.crewBonusCountsTowardPreset ==
                right.crewBonusCountsTowardPreset &&
+           left.weaponPoolOrder == right.weaponPoolOrder &&
            left.startupPreset == right.startupPreset &&
            SameRecordSet(left.presets, right.presets, SamePreset) &&
            SameRecordSet(left.rules, right.rules, SameRule) &&
@@ -481,6 +508,9 @@ std::string DescribeConfigurationDifference(const ConfigurationData& expected,
             "General.bCrewBonusCountsTowardPreset expected {} but reloaded {}",
             expected.crewBonusCountsTowardPreset,
             actual.crewBonusCountsTowardPreset);
+    }
+    if (expected.weaponPoolOrder != actual.weaponPoolOrder) {
+        return "General.sWeaponPoolOrder differs after reload";
     }
     if (expected.startupPreset != actual.startupPreset) {
         return std::format("General.sStartupPreset expected '{}' but reloaded '{}'",
@@ -534,6 +564,10 @@ std::string DescribeConfigurationDifference(const ConfigurationData& expected,
 }
 
 bool ValidateDraft(const ConfigurationData& data, std::string& detail) {
+    if (!ValidWeaponPoolOrder(data.weaponPoolOrder)) {
+        detail = "sWeaponPoolOrder must contain Weapon0, Weapon1, and Weapon2 exactly once.";
+        return false;
+    }
     if (data.presets.empty() || data.presets.size() > 256 || data.rules.size() > 256) {
         detail = "A configuration requires 1-256 presets and no more than 256 rules.";
         return false;
@@ -625,6 +659,15 @@ std::string TierPlanValue(const TierPlan& plan) {
 std::string OrderValue(const Preset& preset) {
     std::string result;
     for (const auto system : preset.tieBreakOrder) {
+        if (!result.empty()) result += ',';
+        result += SystemKey(system);
+    }
+    return result;
+}
+
+std::string WeaponPoolOrderValue(const WeaponPoolOrder& order) {
+    std::string result;
+    for (const auto system : order) {
         if (!result.empty()) result += ',';
         result += SystemKey(system);
     }
@@ -982,6 +1025,11 @@ SaveConfigurationReport Save(const std::filesystem::path& defaultsPath,
             ? std::optional<std::string>{}
             : std::optional(std::string(
                   desired.crewBonusCountsTowardPreset ? "true" : "false")));
+    wrote = wrote && WriteValue(
+        temporary, "General", "sWeaponPoolOrder",
+        desired.weaponPoolOrder == inherited.weaponPoolOrder
+            ? std::optional<std::string>{}
+            : std::optional(WeaponPoolOrderValue(desired.weaponPoolOrder)));
 
     std::set<std::string> presetIds;
     for (const auto& preset : inherited.presets) presetIds.insert(Lower(preset.id));

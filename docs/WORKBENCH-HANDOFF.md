@@ -51,7 +51,7 @@ allocation state belongs in the grid and Diagnostics, not in subscriber-specific
 - **Profile Identity**: one transient populated selector, rename field, and startup toggle.
 - **Hardware Bindings**: keyboard chord and optional Input Bus button/POV capture.
 - **Profile Actions**: Create/Duplicate and Delete/Revert in compact inline rows.
-- Allocation grid: one row each for Weapon 0, Weapon 1, Weapon 2, Engines, Shields, and Grav
+- Allocation grid: one row each for Weapon 1, Weapon 2, Weapon 3, Engines, Shields, and Grav
   Drive, followed by the row's priority Choice when supported.
 - Each row displays the current ship maximum and a contiguous pip strip.
 - Pip colors use both color and a symbol/texture for accessibility:

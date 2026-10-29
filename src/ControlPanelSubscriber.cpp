@@ -1,6 +1,7 @@
 #include "PCH.h"
 
 #include "ControlPanelSubscriber.h"
+#include "AbsoluteControlSubscriberKit.h"
 
 #include "AbsoluteControlPanelLiveComponentsAPI.h"
 #include "Configuration.h"
@@ -43,6 +44,7 @@ std::string ToLower(std::string_view value) {
 std::atomic<const ApiV1*> g_hostApi{};
 std::atomic<const Live::ExperimentalApiV1*> g_liveHostApi{};
 std::atomic<bool> g_registered{};
+std::atomic<bool> g_terminalRejection{};
 std::mutex g_registrationMutex;
 
 struct PresetControl {
@@ -877,11 +879,11 @@ Result __cdecl ReadAutomationChoiceOptions(void*, const char* rawId,
         std::string_view{"Weapon fired"}, std::string_view{"Player ship damaged"},
         std::string_view{"Throttle above"}, std::string_view{"Manual"}};
     constexpr std::array sourceLabels{
-        std::string_view{"Weapon 0"}, std::string_view{"Weapon 1"},
-        std::string_view{"Weapon 2"}, std::string_view{"Any weapon"}};
+        std::string_view{"Weapon 1"}, std::string_view{"Weapon 2"},
+        std::string_view{"Weapon 3"}, std::string_view{"Any weapon"}};
     constexpr std::array targetLabels{
-        std::string_view{"Weapon 0"}, std::string_view{"Weapon 1"},
-        std::string_view{"Weapon 2"}, std::string_view{"Engines"},
+        std::string_view{"Weapon 1"}, std::string_view{"Weapon 2"},
+        std::string_view{"Weapon 3"}, std::string_view{"Engines"},
         std::string_view{"Shields"}, std::string_view{"Grav drive"}};
     const std::string_view id{rawId};
     if (id == "rule-selector") {
@@ -1771,10 +1773,13 @@ Result __cdecl ReadDiagnostics(void*, const char* rawId, ValueV1* output) noexce
                 std::format("{} / {} pips{}", value.current, value.maximum,
                     value.bonus ? std::format(" ({} crew bonus)", value.bonus) : ""));
         } else if (id == "configuration-summary") {
+            const auto& weaponOrder = configuration.data.weaponPoolOrder;
             *output = String(std::format(
-                "Generation {} | {} presets | {} rules | automation {} | crew bonus {}",
+                "Generation {} | {} presets | {} rules | weapon order {} > {} > {} | automation {} | crew bonus {}",
                 configuration.generation, configuration.data.presets.size(),
                 configuration.data.rules.size(),
+                SystemLabel(weaponOrder[0]), SystemLabel(weaponOrder[1]),
+                SystemLabel(weaponOrder[2]),
                 configuration.data.automationEnabled ? "ON" : "OFF",
                 configuration.data.crewBonusCountsTowardPreset
                     ? "COUNTS TOWARD PROFILE" : "ADDITIVE (VANILLA)"));
@@ -1819,10 +1824,13 @@ Result __cdecl ReadDiagnostics(void*, const char* rawId, ValueV1* output) noexce
                 HostSelectionLabel(SuiteHost::Select()),
                 AbsolutePower::InputBusClient::Get().IsAvailable() ? "ready" : "absent"));
         } else if (id == "support-summary") {
+            const auto& weaponOrder = configuration.data.weaponPoolOrder;
             *output = String(std::format(
-                "Power {} | {} | snapshot {} | config gen {} | activation {}",
+                "Power {} | {} | snapshot {} | weapon order {}>{}>{} | config gen {} | activation {}",
                 Plugin::VersionString, RuntimeStateLabel(state),
-                BackendResultLabel(snapshotResult), configuration.generation,
+                BackendResultLabel(snapshotResult), SystemKey(weaponOrder[0]),
+                SystemKey(weaponOrder[1]), SystemKey(weaponOrder[2]),
+                configuration.generation,
                 BackendResultLabel(activation.backend)));
         } else return Result::NotFound;
         return Result::Ok;
@@ -1847,9 +1855,9 @@ const std::array g_diagnosticControls{
             "Executor", "Exact-gated executor, snapshot result, and activation sequence."),
     Control(ControlKind::InputBinding, kControlReadOnly, "live-ship-summary",
             "Live ship", "Pilot context, reactor output, and unassigned live power."),
-    Control(ControlKind::InputBinding, kControlReadOnly, "system-Weapon0", "Weapon 0", "Current and installed maximum pips."),
-    Control(ControlKind::InputBinding, kControlReadOnly, "system-Weapon1", "Weapon 1", "Current and installed maximum pips."),
-    Control(ControlKind::InputBinding, kControlReadOnly, "system-Weapon2", "Weapon 2", "Current and installed maximum pips."),
+    Control(ControlKind::InputBinding, kControlReadOnly, "system-Weapon0", "Weapon 1", "Current and installed maximum pips."),
+    Control(ControlKind::InputBinding, kControlReadOnly, "system-Weapon1", "Weapon 2", "Current and installed maximum pips."),
+    Control(ControlKind::InputBinding, kControlReadOnly, "system-Weapon2", "Weapon 3", "Current and installed maximum pips."),
     Control(ControlKind::InputBinding, kControlReadOnly, "system-Engine", "Engines", "Current and installed maximum pips."),
     Control(ControlKind::InputBinding, kControlReadOnly, "system-Shield", "Shields", "Current and installed maximum pips."),
     Control(ControlKind::InputBinding, kControlReadOnly, "system-GravDrive", "Grav drive", "Current and installed maximum pips."),
@@ -2201,10 +2209,8 @@ std::array<PageDescriptorV1, 3> BuildPages(bool labeledChoices,
 bool Valid(const ApiV1* api) noexcept {
     constexpr auto required = offsetof(ApiV1, isInputCaptureActive) +
                               sizeof(api->isInputCaptureActive);
-    return api && api->structSize >= required && api->abiVersion == kAbiVersion &&
-           api->moduleId && std::string_view(api->moduleId) == kModuleId &&
-           api->registerPage && api->unregisterModule && api->requestRefresh &&
-           api->registerModule && api->isOpen && api->isInputCaptureActive;
+    return AbsoluteControlSubscriberKit::ValidHostApi(api) &&
+           api->structSize >= required && api->isOpen && api->isInputCaptureActive;
 }
 
 bool SupportsLabeledChoices(const ApiV1* api) noexcept {
@@ -2244,6 +2250,7 @@ AbsoluteControlPanelApi::Result RegisterDiscoveredHost() noexcept {
     try {
         std::scoped_lock registrationLock(g_registrationMutex);
         if (g_registered.load(std::memory_order_relaxed)) return Result::Ok;
+        if (g_terminalRejection.load(std::memory_order_relaxed)) return Result::Rejected;
         AbsolutePower::InputBusClient::Get().Discover();
         for (const wchar_t* moduleName : {
                  L"AbsoluteControlPanel.dll",
@@ -2255,19 +2262,23 @@ AbsoluteControlPanelApi::Result RegisterDiscoveredHost() noexcept {
             if (!address) return Result::NotFound;
             const auto query = reinterpret_cast<AbsoluteControlPanelQueryApi>(address);
             const auto* api = query(AbsoluteControlPanelApi::kAbiVersion);
-            if (!Valid(api)) return Result::Rejected;
-
-            const auto moduleResult = api->registerModule(&g_module);
-            if (moduleResult != Result::Ok && moduleResult != Result::Duplicate) {
-                return moduleResult;
+            if (!Valid(api)) {
+                g_terminalRejection.store(true, std::memory_order_release);
+                return Result::Rejected;
             }
             const auto pages = BuildPages(
                 SupportsLabeledChoices(api), SupportsProviderBindingCapture(api),
                 SupportsBindingConflictResolution(api),
                 SupportsStructuredLayout(api));
-            for (const auto& page : pages) {
-                const auto result = api->registerPage(&page);
-                if (result != Result::Ok && result != Result::Duplicate) return result;
+            const auto registration = AbsoluteControlSubscriberKit::RegisterModulePagesDetailed(
+                api, g_module, pages);
+            if (registration.result != Result::Ok) {
+                if (registration.PartialRegistrationMayRemain() ||
+                    registration.result != Result::NotReady) {
+                    g_terminalRejection.store(true, std::memory_order_release);
+                    return Result::Rejected;
+                }
+                return Result::NotReady;
             }
             PublishPowerFrame(true);
             const auto liveAddress = GetProcAddress(
@@ -2283,8 +2294,7 @@ AbsoluteControlPanelApi::Result RegisterDiscoveredHost() noexcept {
                     const auto channel = PowerGridChannel(
                         SupportsGridControlAssociations(live));
                     const auto liveResult = live->registerLiveChannel(&channel);
-                    if (liveResult == Live::Result::Ok ||
-                        liveResult == Live::Result::Duplicate) {
+                    if (liveResult == Live::Result::Ok) {
                         g_liveHostApi.store(live, std::memory_order_release);
                     } else {
                         RuntimePaths::Log(

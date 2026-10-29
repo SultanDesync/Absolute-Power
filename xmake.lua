@@ -1,5 +1,5 @@
 set_project("AbsolutePower")
-set_version("0.3.0")
+set_version("0.3.1")
 set_languages("c++23")
 set_warnings("all")
 
@@ -21,7 +21,7 @@ target("AbsolutePower")
     add_defines(
         "PLUGIN_VERSION_MAJOR=0",
         "PLUGIN_VERSION_MINOR=3",
-        "PLUGIN_VERSION_PATCH=0",
+        "PLUGIN_VERSION_PATCH=1",
         "PLUGIN_VERSION_PRERELEASE=alpha"
     )
     add_syslinks("version", "user32")

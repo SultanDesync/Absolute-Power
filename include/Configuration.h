@@ -19,6 +19,7 @@ struct ConfigurationData {
     bool enableLog{true};
     bool automationEnabled{};
     bool crewBonusCountsTowardPreset{};
+    WeaponPoolOrder weaponPoolOrder{kCanonicalWeaponPoolOrder};
     std::string startupPreset{"Balanced"};
     std::vector<Preset> presets;
     std::vector<AutomationRule> rules;

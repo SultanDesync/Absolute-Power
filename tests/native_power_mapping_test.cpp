@@ -19,6 +19,34 @@ int main() {
     assert(ResearchLayout::WeaponSystemFromPartOrder(2) == SystemId::Weapon2);
     assert(ResearchLayout::WeaponSystemFromPartOrder(3) == SystemId::Invalid);
 
+    constexpr WeaponPoolOrder swappedLastTwo{
+        SystemId::Weapon0, SystemId::Weapon2, SystemId::Weapon1};
+    assert(ValidWeaponPoolOrder(swappedLastTwo));
+    assert(ResearchLayout::WeaponSystemFromPartOrder(0, swappedLastTwo) ==
+           SystemId::Weapon0);
+    assert(ResearchLayout::WeaponSystemFromPartOrder(1, swappedLastTwo) ==
+           SystemId::Weapon2);
+    assert(ResearchLayout::WeaponSystemFromPartOrder(2, swappedLastTwo) ==
+           SystemId::Weapon1);
+
+    // Sparse tables enumerate populated weapon parts only. A loadout with the
+    // middle HUD group empty can explicitly map its two observed entries to
+    // Weapon 1 and Weapon 3; the absent third entry never resolves to a pool.
+    constexpr WeaponPoolOrder sparseMiddle{
+        SystemId::Weapon0, SystemId::Weapon2, SystemId::Weapon1};
+    assert(ResearchLayout::WeaponSystemFromPartOrder(0, sparseMiddle) ==
+           SystemId::Weapon0);
+    assert(ResearchLayout::WeaponSystemFromPartOrder(1, sparseMiddle) ==
+           SystemId::Weapon2);
+    assert(ResearchLayout::WeaponSystemFromPartOrder(3, sparseMiddle) ==
+           SystemId::Invalid);
+    constexpr WeaponPoolOrder duplicate{
+        SystemId::Weapon0, SystemId::Weapon1, SystemId::Weapon1};
+    constexpr WeaponPoolOrder nonWeapon{
+        SystemId::Weapon0, SystemId::Weapon1, SystemId::Engine};
+    static_assert(!ValidWeaponPoolOrder(duplicate));
+    static_assert(!ValidWeaponPoolOrder(nonWeapon));
+
     assert(ResearchLayout::EngineIdentityGateRva == 0x1F2FAC4);
     assert(ResearchLayout::ShieldIdentityGateRva == 0x1F2FA82);
     assert(ResearchLayout::GravDriveIdentityGateRva == 0x1F2FA40);

@@ -4,9 +4,11 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstring>
+#include <format>
 #include <limits>
 
 namespace AbsolutePower {
@@ -97,6 +99,8 @@ enum class SnapshotDiagnostic : std::uint32_t {
     ReferenceRelease = 1u << 8,
     SnapshotReady = 1u << 9,
     LiveRegistryType = 1u << 10,
+    InvalidTopology = 1u << 11,
+    ChangedTopology = 1u << 12,
 };
 
 std::atomic<std::uint32_t> g_snapshotDiagnostics{};
@@ -320,6 +324,13 @@ BackendResult LookupEquipment(std::uintptr_t module, NativeEquipment& equipment)
         } else if (identity == gravIdentity) {
             part.kind = PartKind::GravDrive;
         } else if (weapon) {
+            if (weaponIndex >= kWeaponSystemCount) {
+                LogSnapshotDiagnosticOnce(
+                    SnapshotDiagnostic::InvalidTopology,
+                    "Power equipment exposed more than three weapon-bearing parts; refusing an ambiguous pool map.");
+                return ReleaseAndReturn(
+                    module, equipment, BackendResult::SnapshotSeamUnavailable);
+            }
             part.kind = PartKind::Weapon;
             part.weaponIndex = weaponIndex++;
         }
@@ -327,10 +338,11 @@ BackendResult LookupEquipment(std::uintptr_t module, NativeEquipment& equipment)
     return BackendResult::Ok;
 }
 
-SystemId ToSystem(const NativePart& part) {
+SystemId ToSystem(const NativePart& part, const WeaponPoolOrder& weaponPoolOrder) {
     switch (part.kind) {
     case PartKind::Weapon:
-        return ResearchLayout::WeaponSystemFromPartOrder(part.weaponIndex);
+        return ResearchLayout::WeaponSystemFromPartOrder(
+            part.weaponIndex, weaponPoolOrder);
     case PartKind::Engine: return SystemId::Engine;
     case PartKind::Shield: return SystemId::Shield;
     case PartKind::GravDrive: return SystemId::GravDrive;
@@ -339,11 +351,32 @@ SystemId ToSystem(const NativePart& part) {
     return SystemId::Invalid;
 }
 
+bool BuildTopology(const NativeEquipment& equipment,
+                   const WeaponPoolOrder& weaponPoolOrder,
+                   std::array<std::uintptr_t, kSystemCount>& parts) {
+    parts.fill(0);
+    if (!ValidWeaponPoolOrder(weaponPoolOrder)) return false;
+    for (std::size_t index = 0; index < equipment.partCount; ++index) {
+        const auto& part = equipment.parts[index];
+        const auto system = ToSystem(part, weaponPoolOrder);
+        if (system == SystemId::Invalid) continue;
+        auto& resolved = parts[ToIndex(system)];
+        if (resolved) return false;
+        resolved = part.address;
+    }
+    return true;
+}
+
 } // namespace
 
 bool NativePowerBackend::Initialize() {
     module_ = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     setterSignaturesReady_ = module_ && AllRuntimeGatesMatch(module_);
+    {
+        std::scoped_lock lock(topologyMutex_);
+        capturedTopology_ = {};
+        capturedTopologyReady_ = false;
+    }
     RuntimePaths::Log(
         "NativePower",
         setterSignaturesReady_
@@ -357,9 +390,39 @@ bool NativePowerBackend::SetterSignaturesReady() const noexcept {
     return setterSignaturesReady_;
 }
 
+void NativePowerBackend::SetWeaponPoolOrder(const WeaponPoolOrder& order) {
+    {
+        std::scoped_lock lock(topologyMutex_);
+        weaponPoolOrder_ = order;
+        capturedTopology_ = {};
+        capturedTopologyReady_ = false;
+    }
+    if (!ValidWeaponPoolOrder(order)) {
+        RuntimePaths::Log(
+            "NativePower",
+            "sWeaponPoolOrder is invalid; native power capture and writes remain fail-closed.",
+            true);
+        return;
+    }
+    RuntimePaths::Log(
+        "NativePower",
+        std::format("Weapon-bearing part order resolves as {}, {}, {}.",
+                    SystemLabel(order[0]), SystemLabel(order[1]),
+                    SystemLabel(order[2])),
+        order != kCanonicalWeaponPoolOrder);
+}
+
 BackendResult NativePowerBackend::Capture(Snapshot& snapshot) {
     snapshot = {};
     if (!setterSignaturesReady_ || !module_) return BackendResult::UnsupportedRuntime;
+
+    WeaponPoolOrder weaponPoolOrder;
+    {
+        std::scoped_lock lock(topologyMutex_);
+        capturedTopologyReady_ = false;
+        weaponPoolOrder = weaponPoolOrder_;
+    }
+    if (!ValidWeaponPoolOrder(weaponPoolOrder)) return BackendResult::InvalidRequest;
 
     NativeEquipment equipment{};
     const auto lookup = LookupEquipment(module_, equipment);
@@ -370,17 +433,28 @@ BackendResult NativePowerBackend::Capture(Snapshot& snapshot) {
         return ReleaseAndReturn(module_, equipment, BackendResult::InvalidRequest);
     }
     snapshot.available = static_cast<std::uint16_t>(equipment.available);
+    Topology topology{.equipment = equipment.reference.object};
+    if (!BuildTopology(equipment, weaponPoolOrder, topology.parts)) {
+        LogSnapshotDiagnosticOnce(
+            SnapshotDiagnostic::InvalidTopology,
+            "Power equipment exposed a duplicate or invalid resolved pool; refusing the ambiguous topology.");
+        return ReleaseAndReturn(
+            module_, equipment, BackendResult::SnapshotSeamUnavailable);
+    }
     std::uint32_t total = snapshot.available;
     for (std::size_t index = 0; index < equipment.partCount; ++index) {
         const auto& part = equipment.parts[index];
-        const auto system = ToSystem(part);
+        const auto system = ToSystem(part, weaponPoolOrder);
         if (system == SystemId::Invalid) continue;
         if (part.maximum > std::numeric_limits<std::uint16_t>::max() ||
             part.current > part.maximum || part.current > std::numeric_limits<std::uint16_t>::max()) {
             return ReleaseAndReturn(module_, equipment, BackendResult::InvalidRequest);
         }
         auto& state = snapshot.systems[ToIndex(system)];
-        if (state.present) continue;
+        if (state.present) {
+            return ReleaseAndReturn(
+                module_, equipment, BackendResult::SnapshotSeamUnavailable);
+        }
         state.present = true;
         state.maximum = static_cast<std::uint16_t>(part.maximum);
         state.current = static_cast<std::uint16_t>(part.current + part.bonus);
@@ -389,10 +463,26 @@ BackendResult NativePowerBackend::Capture(Snapshot& snapshot) {
     }
     snapshot.totalPower = static_cast<std::uint16_t>(
         std::min<std::uint32_t>(total, std::numeric_limits<std::uint16_t>::max()));
+    const auto weaponPartCount = std::ranges::count_if(
+        equipment.parts.begin(),
+        equipment.parts.begin() + equipment.partCount,
+        [](const NativePart& part) { return part.kind == PartKind::Weapon; });
+    const auto topologyMessage = std::format(
+        "Validated native Power snapshot is available ({} weapon-bearing part{}; ordinal map {}, {}, {}).",
+        weaponPartCount, weaponPartCount == 1 ? "" : "s",
+        SystemLabel(weaponPoolOrder[0]), SystemLabel(weaponPoolOrder[1]),
+        SystemLabel(weaponPoolOrder[2]));
     LogSnapshotDiagnosticOnce(
-        SnapshotDiagnostic::SnapshotReady,
-        "Validated native Power snapshot is available.", false);
-    return ReleaseAndReturn(module_, equipment, BackendResult::Ok);
+        SnapshotDiagnostic::SnapshotReady, topologyMessage.c_str(), false);
+    const auto released = ReleaseAndReturn(module_, equipment, BackendResult::Ok);
+    if (released == BackendResult::Ok) {
+        std::scoped_lock lock(topologyMutex_);
+        if (weaponPoolOrder_ == weaponPoolOrder) {
+            capturedTopology_ = topology;
+            capturedTopologyReady_ = true;
+        }
+    }
+    return released;
 }
 
 BackendResult NativePowerBackend::SetPower(SystemId system, std::uint16_t targetPips) {
@@ -401,13 +491,39 @@ BackendResult NativePowerBackend::SetPower(SystemId system, std::uint16_t target
         return BackendResult::InvalidRequest;
     }
 
+    WeaponPoolOrder weaponPoolOrder;
+    Topology capturedTopology;
+    {
+        std::scoped_lock lock(topologyMutex_);
+        weaponPoolOrder = weaponPoolOrder_;
+        capturedTopology = capturedTopology_;
+        if (!capturedTopologyReady_) return BackendResult::SnapshotSeamUnavailable;
+    }
+    if (!ValidWeaponPoolOrder(weaponPoolOrder)) return BackendResult::InvalidRequest;
+
     NativeEquipment equipment{};
     const auto lookup = LookupEquipment(module_, equipment);
     if (lookup != BackendResult::Ok) return lookup;
 
+    Topology currentTopology{.equipment = equipment.reference.object};
+    if (!BuildTopology(equipment, weaponPoolOrder, currentTopology.parts)) {
+        LogSnapshotDiagnosticOnce(
+            SnapshotDiagnostic::InvalidTopology,
+            "Power equipment exposed a duplicate or invalid resolved pool; refusing the ambiguous topology.");
+        return ReleaseAndReturn(
+            module_, equipment, BackendResult::SnapshotSeamUnavailable);
+    }
+    if (!(currentTopology == capturedTopology)) {
+        LogSnapshotDiagnosticOnce(
+            SnapshotDiagnostic::ChangedTopology,
+            "Power equipment topology changed between capture and write; the write was rejected and requires a fresh snapshot.");
+        return ReleaseAndReturn(
+            module_, equipment, BackendResult::SnapshotSeamUnavailable);
+    }
+
     NativePart* targetPart = nullptr;
     for (std::size_t index = 0; index < equipment.partCount; ++index) {
-        if (ToSystem(equipment.parts[index]) == system) {
+        if (ToSystem(equipment.parts[index], weaponPoolOrder) == system) {
             targetPart = &equipment.parts[index];
             break;
         }
@@ -425,15 +541,28 @@ BackendResult NativePowerBackend::SetPower(SystemId system, std::uint16_t target
     }
 
     using PowerSetter = bool (*)(void*, void*, std::uint32_t, std::uint8_t);
-    const bool accepted = reinterpret_cast<PowerSetter>(module_ + kPowerSetterRva)(
-        reinterpret_cast<void*>(equipment.reference.object),
-        reinterpret_cast<void*>(targetPart->address), baseTarget,
-        static_cast<std::uint8_t>(ResearchLayout::WorkbenchReason));
+    bool accepted{};
     std::uint32_t observed{};
-    const bool observedTarget =
-        SafeCopy(&observed, targetPart->address + ResearchLayout::PartCurrentPowerOffset,
-                 sizeof(observed)) &&
-        observed == baseTarget;
+    bool observedTarget{};
+    {
+        // Keep configuration reloads and new captures from invalidating the
+        // exact snapshot contract after the final comparison but before the write.
+        std::scoped_lock lock(topologyMutex_);
+        if (!capturedTopologyReady_ || weaponPoolOrder_ != weaponPoolOrder ||
+            !(capturedTopology_ == capturedTopology)) {
+            return ReleaseAndReturn(
+                module_, equipment, BackendResult::SnapshotSeamUnavailable);
+        }
+        accepted = reinterpret_cast<PowerSetter>(module_ + kPowerSetterRva)(
+            reinterpret_cast<void*>(equipment.reference.object),
+            reinterpret_cast<void*>(targetPart->address), baseTarget,
+            static_cast<std::uint8_t>(ResearchLayout::WorkbenchReason));
+        observedTarget =
+            SafeCopy(&observed,
+                     targetPart->address + ResearchLayout::PartCurrentPowerOffset,
+                     sizeof(observed)) &&
+            observed == baseTarget;
+    }
     return ReleaseAndReturn(module_, equipment,
                             accepted && observedTarget ? BackendResult::Ok
                                                        : BackendResult::SetterRejected);

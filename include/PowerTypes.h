@@ -20,6 +20,12 @@ enum class SystemId : std::uint8_t {
 };
 
 inline constexpr std::size_t kSystemCount = static_cast<std::size_t>(SystemId::Count);
+inline constexpr std::size_t kWeaponSystemCount = 3;
+
+using WeaponPoolOrder = std::array<SystemId, kWeaponSystemCount>;
+
+inline constexpr WeaponPoolOrder kCanonicalWeaponPoolOrder{
+    SystemId::Weapon0, SystemId::Weapon1, SystemId::Weapon2};
 
 inline constexpr std::array<SystemId, kSystemCount> kCockpitOrder{
     SystemId::Weapon0, SystemId::Weapon1, SystemId::Weapon2,
@@ -28,6 +34,23 @@ inline constexpr std::array<SystemId, kSystemCount> kCockpitOrder{
 
 [[nodiscard]] constexpr std::size_t ToIndex(SystemId system) noexcept {
     return static_cast<std::size_t>(system);
+}
+
+[[nodiscard]] constexpr bool IsWeaponSystem(SystemId system) noexcept {
+    return system == SystemId::Weapon0 || system == SystemId::Weapon1 ||
+           system == SystemId::Weapon2;
+}
+
+[[nodiscard]] constexpr bool ValidWeaponPoolOrder(
+    const WeaponPoolOrder& order) noexcept {
+    std::array<bool, kWeaponSystemCount> seen{};
+    for (const auto system : order) {
+        if (!IsWeaponSystem(system)) return false;
+        const auto index = ToIndex(system);
+        if (index >= seen.size() || seen[index]) return false;
+        seen[index] = true;
+    }
+    return true;
 }
 
 // Config arrays, Control rows, snapshots, and the public API all index by this

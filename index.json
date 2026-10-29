@@ -1,6 +1,6 @@
 {
   "project": "AbsolutePower",
-  "version": "0.1.0-alpha",
+  "version": "0.3.1-alpha",
   "type": "Standalone SFSE plugin with an Absolute Workbench frontend",
   "summary": "Tiered ship-power presets and opt-in event-driven power automation for Starfield.",
   "requiredRuntimeDependencies": [
